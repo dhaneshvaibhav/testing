@@ -1,0 +1,19 @@
+/* Remove ALL browser default margin */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+}
+
+/* Prevent unwanted scrollbars and border gaps */
+body {
+  background: #EBD5AB; /* Same background as your page */
+  overflow-x: hidden;
+}
+
+/* Ensure component fills screen */
+#root {
+  display: flex;
+  flex-direction: column;
+}
