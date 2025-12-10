@@ -12,6 +12,11 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.use(cors());
 app.use(express.json());
 
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({ message: 'College Truth Board API is running' });
+});
+
 // --- SUPABASE INIT --- //
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
@@ -370,6 +375,13 @@ app.delete('/api/posts/:id', async (req, res) => {
 // ==============================
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () =>
-  console.log(`Server running on http://localhost:${PORT}`)
-);
+
+// For local development
+if (!process.env.VERCEL) {
+  app.listen(PORT, () =>
+    console.log(`Server running on http://localhost:${PORT}`)
+  );
+}
+
+// Export for Vercel serverless
+export default app;
