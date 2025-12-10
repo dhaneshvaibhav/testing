@@ -389,5 +389,6 @@ if (!process.env.VERCEL) {
   );
 }
 
-// Export for Vercel serverless
+// Export for Vercel and Node.js
+module.exports = app;
 export default app;
