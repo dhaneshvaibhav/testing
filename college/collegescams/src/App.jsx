@@ -3,6 +3,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom"
 import StartingPage from "./pages/startingpage.jsx"
 import Posts from "./pages/post.jsx"
 import PostDetail from "./pages/PostDetail.jsx"
+import Search from "./pages/Search.jsx"
+import About from "./pages/About.jsx"
+import Admin from "./pages/Admin.jsx"
 import Navbar from "./components/Navbar.jsx"
 import CreatePostModal from "./pages/createpostmodal.jsx"
 import "./index.css"
@@ -18,6 +21,9 @@ function App() {
       <Routes>
         <Route path="/" element={<StartingPage />} />
         <Route path="/posts" element={<Posts refreshKey={refreshKey} />} />
+        <Route path="/search" element={<Search />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/secret" element={<Admin />} />
         <Route path="/:college/:id" element={<PostDetail />} />
       </Routes>
 

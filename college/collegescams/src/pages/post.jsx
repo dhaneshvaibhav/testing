@@ -17,8 +17,19 @@ export default function Posts({ refreshKey }) {
   const [reportFile, setReportFile] = useState(null);
 
 
-  useEffect(() => { fetchPosts(false); }, []);
-  useEffect(() => { if (refreshKey > 0) fetchPosts(true); }, [refreshKey]);
+  useEffect(() => {
+    console.log('Component mounted, fetching posts');
+    fetchPosts(false);
+  }, []);
+
+  useEffect(() => {
+    console.log('RefreshKey changed:', refreshKey);
+    if (refreshKey > 0) fetchPosts(true);
+  }, [refreshKey]);
+
+  useEffect(() => {
+    console.log('Interactions state updated:', interactions);
+  }, [interactions]);
 
   function openReportModal(post) {
     setReportPost(post);
@@ -29,49 +40,91 @@ export default function Posts({ refreshKey }) {
     if (!reportType) return alert("Select TRUE or FALSE");
 
     const formData = new FormData();
-    formData.append("post_id", reportPost.id);
     formData.append("report_type", reportType);
     formData.append("report_text", reportText);
     if (reportFile) formData.append("proof", reportFile);
 
-    await fetch(`${API_BASE}/api/posts/report`, {
+    const res = await fetch(`${API_BASE}/api/posts/${reportPost.id}/report`, {
       method: "POST",
       body: formData,
     });
 
-    setShowReport(false);
-    setReportType(null);
-    setReportText("");
-    setReportFile(null);
+    if (res.ok) {
+      setShowReport(false);
+      setReportType(null);
+      setReportText("");
+      setReportFile(null);
+      fetchPosts(true); // Refresh to show updated report count
+    } else {
+      alert("Error submitting report");
+    }
   }
 
 
   async function fetchPosts(isBackground = false) {
     if (!isBackground) setLoading(true);
     try {
+      console.log('Fetching posts...');
       const res = await fetch(`${API_BASE}/api/posts`);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
+      console.log('Posts fetched:', data);
       setPosts(data || []);
 
       // Fetch interactions for all posts
       const interData = {};
       for (const p of data) {
-        const resInt = await fetch(`${API_BASE}/api/posts/${p.id}/interactions`);
-        interData[p.id] = await resInt.json();
+        try {
+          const resInt = await fetch(`${API_BASE}/api/posts/${p.id}/interactions`);
+          if (!resInt.ok) throw new Error(`HTTP error! status: ${resInt.status}`);
+          const intJson = await resInt.json();
+          console.log(`Interactions for ${p.id}:`, intJson);
+          interData[p.id] = intJson;
+        } catch (err) {
+          console.error(`Error fetching interactions for ${p.id}:`, err);
+          interData[p.id] = { upvotes: 0, downvotes: 0, comments: [], reports: 0 };
+        }
       }
+      console.log('All interactions:', interData);
       setInteractions(interData);
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching posts:', err);
     } finally { if (!isBackground) setLoading(false); }
   }
 
   async function interact(postId, type, commentText) {
-    await fetch(`${API_BASE}/api/posts/${postId}/interact`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action_type: type, comment_text: commentText || null }),
-    });
-    fetchPosts(true); // Always background update on interaction
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/${postId}/interact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_type: type, comment_text: commentText || null }),
+      });
+
+      if (!res.ok) {
+        console.error('Interact request failed:', await res.text());
+        return;
+      }
+
+      const data = await res.json();
+      console.log('Interact response:', data);
+
+      // Small delay to ensure database update completes
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Refetch this post's interactions
+      const intRes = await fetch(`${API_BASE}/api/posts/${postId}/interactions`);
+      if (!intRes.ok) throw new Error('Failed to fetch interactions');
+      const intJson = await intRes.json();
+      console.log(`Updated interactions for ${postId}:`, intJson);
+
+      setInteractions(prev => ({
+        ...prev,
+        [postId]: intJson
+      }));
+
+    } catch (err) {
+      console.error('Interaction error:', err);
+    }
   }
 
   function toggleComments(postId) {
@@ -133,21 +186,24 @@ export default function Posts({ refreshKey }) {
               <div style={styles.votePill}>
                 <button
                   style={styles.voteBtn}
-                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'like'); }}
+                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'upvote'); }}
                   onMouseEnter={(e) => e.target.style.color = '#00f2ea'}
                   onMouseLeave={(e) => e.target.style.color = '#fff'}
+                  title={`Upvotes: ${interactions[post.id]?.upvotes || 0}`}
                 >
                   <UpIcon />
-                  <span style={styles.count}>{interactions[post.id]?.likes || 0}</span>
+                  <span style={styles.count}>{typeof interactions[post.id]?.upvotes === 'number' ? interactions[post.id].upvotes : 0}</span>
                 </button>
                 <div style={styles.divider}></div>
                 <button
                   style={styles.voteBtn}
-                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'dislike'); }}
+                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'downvote'); }}
                   onMouseEnter={(e) => e.target.style.color = '#ff0055'}
                   onMouseLeave={(e) => e.target.style.color = '#fff'}
+                  title={`Downvotes: ${interactions[post.id]?.downvotes || 0}`}
                 >
                   <DownIcon />
+                  <span style={styles.count}>{typeof interactions[post.id]?.downvotes === 'number' ? interactions[post.id].downvotes : 0}</span>
                 </button>
                 <button
                   style={styles.reportBtn}
@@ -162,9 +218,13 @@ export default function Posts({ refreshKey }) {
               </div>
 
               {/* COMMENT BUTTON */}
-              <button style={styles.commentBtn} onClick={(e) => { e.stopPropagation(); toggleComments(post.id); }}>
+              <button
+                style={styles.commentBtn}
+                onClick={(e) => { e.stopPropagation(); toggleComments(post.id); }}
+                title={`Comments: ${Array.isArray(interactions[post.id]?.comments) ? interactions[post.id].comments.length : 0}`}
+              >
                 <CommentIcon />
-                <span>{interactions[post.id]?.comments?.length || 0}</span>
+                <span>{Array.isArray(interactions[post.id]?.comments) ? interactions[post.id].comments.length : 0}</span>
               </button>
 
             </div>
@@ -172,7 +232,20 @@ export default function Posts({ refreshKey }) {
             {/* COMMENTS */}
             {openComments === post.id && (
               <div style={styles.commentsSection} onClick={(e) => e.stopPropagation()}>
-                {interactions[post.id]?.comments?.map(c => <div key={c.id} style={styles.commentBubble}>{c.comment_text}</div>)}
+                <div style={{ marginBottom: '15px' }}>
+                  {Array.isArray(interactions[post.id]?.comments) && interactions[post.id].comments.length > 0 ? (
+                    interactions[post.id].comments.map(c => (
+                      <div key={c.id} style={styles.commentBubble}>
+                        <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#fff' }}>{c.comment_text}</p>
+                        <span style={{ fontSize: '12px', color: '#888' }}>
+                          {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p style={{ color: '#888', fontSize: '14px' }}>No comments yet. Be the first!</p>
+                  )}
+                </div>
                 <div style={styles.commentInputBox}>
                   <input value={newComment[post.id] || ""} placeholder="Add comment..." onChange={e => setNewComment(prev => ({ ...prev, [post.id]: e.target.value }))} onKeyDown={e => e.key === 'Enter' && postComment(post.id)} style={styles.input} />
                   <button onClick={() => postComment(post.id)} style={styles.sendBtn}>Send</button>
@@ -186,9 +259,21 @@ export default function Posts({ refreshKey }) {
         <div style={styles.modalOverlay} onClick={() => setShowReport(false)}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
 
-            <h2 style={{ color: "#fff", marginBottom: "10px" }}>
-              Report Post - {reportPost?.college}
-            </h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h2 style={{ color: "#fff", margin: 0 }}>
+                Report Post
+              </h2>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowReport(false); }}
+                style={{ background: 'none', border: 'none', color: '#999', fontSize: '24px', cursor: 'pointer' }}
+              >
+                ×
+              </button>
+            </div>
+
+            <p style={{ color: "#aaa", marginBottom: "20px" }}>
+              Is this post True or False? - {reportPost?.college}
+            </p>
 
             <p style={{ color: "#aaa", marginBottom: "20px" }}>
               Is this post True or False?
@@ -219,6 +304,7 @@ export default function Posts({ refreshKey }) {
 
             <input
               type="file"
+              accept="image/*,video/*"
               style={{ marginTop: "10px", color: "#fff" }}
               onChange={(e) => setReportFile(e.target.files[0])}
             />

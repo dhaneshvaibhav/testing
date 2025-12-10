@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 const API_BASE = "http://localhost:8000";
 
 export default function PostDetail() {
-    const { id } = useParams();
+    const { id, college } = useParams();
     const navigate = useNavigate();
     const [post, setPost] = useState(null);
     const [interactions, setInteractions] = useState({});
@@ -15,7 +15,18 @@ export default function PostDetail() {
     const [reportText, setReportText] = useState("");
     const [reportFile, setReportFile] = useState(null);
 
-    useEffect(() => { fetchPostData(); }, [id]);
+    useEffect(() => {
+        console.log('PostDetail mounted, college:', college, 'id:', id);
+        if (id) {
+            fetchPostData();
+        } else {
+            console.error('No post ID in URL');
+        }
+    }, [id]);
+
+    useEffect(() => {
+        console.log('PostDetail interactions updated:', interactions);
+    }, [interactions]);
 
     async function submitReport() {
         if (!reportType) {
@@ -26,7 +37,7 @@ export default function PostDetail() {
         const formData = new FormData();
         formData.append("report_type", reportType);
         formData.append("report_text", reportText);
-        if (reportFile) formData.append("file", reportFile);
+        if (reportFile) formData.append("proof", reportFile);
 
         const res = await fetch(`${API_BASE}/api/posts/${id}/report`, {
             method: "POST",
@@ -39,6 +50,7 @@ export default function PostDetail() {
             setReportText("");
             setReportType(null);
             setReportFile(null);
+            fetchPostData(true);
         } else {
             alert("Error submitting report");
         }
@@ -47,30 +59,64 @@ export default function PostDetail() {
     async function fetchPostData(isBackground = false) {
         if (!isBackground) setLoading(true);
         try {
+            console.log(`Fetching post with ID: ${id}`);
             // Fetch Post
             const res = await fetch(`${API_BASE}/api/posts/${id}`);
-            if (!res.ok) throw new Error("Post not found");
+            console.log(`Fetch response status: ${res.status}`);
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(`Post not found: HTTP ${res.status} - ${errorText}`);
+            }
             const data = await res.json();
+            console.log('Post data:', data);
             setPost(data);
 
             // Fetch Interactions
+            console.log(`Fetching interactions for post ${id}`);
             const resInt = await fetch(`${API_BASE}/api/posts/${id}/interactions`);
+            console.log(`Interactions response status: ${resInt.status}`);
+            if (!resInt.ok) {
+                throw new Error(`Failed to fetch interactions: HTTP ${resInt.status}`);
+            }
             const intData = await resInt.json();
+            console.log('PostDetail interactions:', intData);
             setInteractions(intData);
 
         } catch (err) {
-            console.error(err);
-            // navigate("/"); // Redirect if not found?
+            console.error('Error fetching post:', err.message);
+            alert(`Error: ${err.message}`);
         } finally { if (!isBackground) setLoading(false); }
     }
 
     async function interact(type, commentText) {
-        await fetch(`${API_BASE}/api/posts/${id}/interact`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action_type: type, comment_text: commentText || null }),
-        });
-        fetchPostData(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/posts/${id}/interact`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action_type: type, comment_text: commentText || null }),
+            });
+
+            if (!res.ok) {
+                console.error('Interact request failed:', await res.text());
+                return;
+            }
+
+            const result = await res.json();
+            console.log(`Interaction result for ${type}:`, result);
+
+            // Small delay to ensure database update completes
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Immediately fetch updated interactions
+            const resInt = await fetch(`${API_BASE}/api/posts/${id}/interactions`);
+            if (!resInt.ok) throw new Error('Failed to fetch updated interactions');
+
+            const intData = await resInt.json();
+            console.log('Updated interactions:', intData);
+            setInteractions(intData);
+        } catch (err) {
+            console.error(`Error during ${type}:`, err);
+        }
     }
 
     function postComment() {
@@ -123,21 +169,24 @@ export default function PostDetail() {
                     <div style={styles.votePill}>
                         <button
                             style={styles.voteBtn}
-                            onClick={() => interact('like')}
+                            onClick={() => interact('upvote')}
                             onMouseEnter={(e) => e.target.style.color = '#00f2ea'}
                             onMouseLeave={(e) => e.target.style.color = '#fff'}
+                            title={`Upvotes: ${typeof interactions.upvotes === 'number' ? interactions.upvotes : 0}`}
                         >
                             <UpIcon />
-                            <span style={styles.count}>{interactions.likes || 0}</span>
+                            <span style={styles.count}>{typeof interactions.upvotes === 'number' ? interactions.upvotes : 0}</span>
                         </button>
                         <div style={styles.divider}></div>
                         <button
                             style={styles.voteBtn}
-                            onClick={() => interact('dislike')}
+                            onClick={() => interact('downvote')}
                             onMouseEnter={(e) => e.target.style.color = '#ff0055'}
                             onMouseLeave={(e) => e.target.style.color = '#fff'}
+                            title={`Downvotes: ${typeof interactions.downvotes === 'number' ? interactions.downvotes : 0}`}
                         >
                             <DownIcon />
+                            <span style={styles.count}>{typeof interactions.downvotes === 'number' ? interactions.downvotes : 0}</span>
                         </button>
                     </div>
                     <button
@@ -150,7 +199,7 @@ export default function PostDetail() {
 
                 {/* COMMENTS SECTION */}
                 <div style={styles.commentsSection}>
-                    <h3 style={styles.commentHeader}>Comments ({interactions.comments?.length || 0})</h3>
+                    <h3 style={styles.commentHeader}>Comments ({Array.isArray(interactions.comments) ? interactions.comments.length : 0})</h3>
 
                     <div style={styles.commentInputBox}>
                         <input
@@ -164,13 +213,16 @@ export default function PostDetail() {
                     </div>
 
                     <div style={styles.commentList}>
-                        {interactions.comments?.map(c => (
-                            <div key={c.id} style={styles.commentBubble}>
-                                {/* Could add user alias here later */}
-                                <p style={styles.commentText}>{c.comment_text}</p>
-                                <span style={styles.timestamp}>{new Date(c.created_at).toLocaleDateString()}</span>
-                            </div>
-                        ))}
+                        {Array.isArray(interactions.comments) && interactions.comments.length > 0 ? (
+                            interactions.comments.map(c => (
+                                <div key={c.id} style={styles.commentBubble}>
+                                    <p style={styles.commentText}>{c.comment_text}</p>
+                                    <span style={styles.timestamp}>{new Date(c.created_at).toLocaleDateString()}</span>
+                                </div>
+                            ))
+                        ) : (
+                            <p style={{ color: '#888', padding: '10px' }}>No comments yet. Be the first!</p>
+                        )}
                     </div>
                 </div>
 
@@ -179,9 +231,21 @@ export default function PostDetail() {
                 <div style={styles.modalOverlay} onClick={() => setShowReport(false)}>
                     <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
 
-                        <h2 style={{ color: "#fff", marginBottom: "10px" }}>
-                            Report Post - {post.college}
-                        </h2>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <h2 style={{ color: "#fff", margin: 0 }}>
+                                Report Post
+                            </h2>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowReport(false); }}
+                                style={{ background: 'none', border: 'none', color: '#999', fontSize: '24px', cursor: 'pointer' }}
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <p style={{ color: "#aaa", marginBottom: "20px" }}>
+                            Is this post True or False? - {post.college}
+                        </p>
 
                         <p style={{ color: "#aaa", marginBottom: "20px" }}>
                             Is this post True or False?
@@ -212,6 +276,7 @@ export default function PostDetail() {
 
                         <input
                             type="file"
+                            accept="image/*,video/*"
                             style={{ marginTop: "10px", color: "#fff" }}
                             onChange={(e) => setReportFile(e.target.files[0])}
                         />
