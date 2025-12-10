@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://backend-3gjmb1ges-dhaneshs-projects-fb9f1328.vercel.app";
 
 export default function PostDetail() {
     const { id, college } = useParams();
