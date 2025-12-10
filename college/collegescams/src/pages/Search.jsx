@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-const API_BASE = "https://backend-3gjmb1ges-dhaneshs-projects-fb9f1328.vercel.app";
+const API_BASE = "https://backend-lz31yk059-dhaneshs-projects-fb9f1328.vercel.app";
 
 export default function Search() {
     const navigate = useNavigate();
