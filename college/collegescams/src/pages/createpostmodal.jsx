@@ -21,7 +21,7 @@ export default function CreatePostModal({ type, onClose, onPostCreated }) {
     if (type === "text") formData.append("body", body);
     else if (file) formData.append("file", file);
 
-    const res = await fetch("https://backend-kjld57gx7-dhaneshs-projects-fb9f1328.vercel.app/api/posts", {
+    const res = await fetch("https://backend-gi5ew9pss-dhaneshs-projects-fb9f1328.vercel.app/api/posts", {
       method: "POST",
       body: formData
     });

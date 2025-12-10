@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
-const API_BASE = "https://backend-kjld57gx7-dhaneshs-projects-fb9f1328.vercel.app";
+const API_BASE = "https://backend-gi5ew9pss-dhaneshs-projects-fb9f1328.vercel.app";
 
 export default function PostDetail() {
     const { id, college } = useParams();
