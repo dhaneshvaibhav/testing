@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { BrowserRouter, Routes, Route } from "react-router-dom"
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query' // IMPORT
+import { Plus, Camera, Video, FileText, X } from 'lucide-react' // IMPORT ICONS
 import StartingPage from "./pages/startingpage.jsx"
 import Posts from "./pages/post.jsx"
 import PostDetail from "./pages/PostDetail.jsx"
@@ -10,62 +12,71 @@ import Navbar from "./components/Navbar.jsx"
 import CreatePostModal from "./pages/createpostmodal.jsx"
 import "./index.css"
 
+const queryClient = new QueryClient() // INITIALIZE
+
 function App() {
   const [showPicker, setShowPicker] = useState(false)
   const [postType, setPostType] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (
-    <BrowserRouter>
-      <Navbar />
-      <Routes>
-        <Route path="/" element={<StartingPage />} />
-        <Route path="/posts" element={<Posts refreshKey={refreshKey} />} />
-        <Route path="/search" element={<Search />} />
-        <Route path="/about" element={<About />} />
-        <Route path="/secret" element={<Admin />} />
-        <Route path="/:college/:id" element={<PostDetail />} />
-      </Routes>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Navbar />
+        <Routes>
+          <Route path="/" element={<StartingPage />} />
+          <Route path="/posts" element={<Posts refreshKey={refreshKey} />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/secret" element={<Admin />} />
+          <Route path="/:college/:id" element={<PostDetail />} />
+        </Routes>
 
-      {/* ➕ FLOATING BUTTON */}
-      <button
-        style={styles.fab}
-        onClick={() => setShowPicker(true)}
-        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-      >
-        +
-      </button>
+        {/* ➕ FLOATING BUTTON */}
+        <button
+          style={styles.fab}
+          onClick={() => setShowPicker(true)}
+          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+        >
+          <Plus size={32} />
+        </button>
 
-      {/* 📌 Bottom sheet - Choose upload format */}
-      {showPicker && (
-        <div style={styles.overlay} onClick={() => setShowPicker(false)}>
-          <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.sheetHeader}>
-              <h3 style={styles.sheetTitle}>Create New</h3>
-              <button style={styles.closeBtn} onClick={() => setShowPicker(false)}>×</button>
+        {/* 📌 Bottom sheet - Choose upload format */}
+        {showPicker && (
+          <div style={styles.overlay} onClick={() => setShowPicker(false)}>
+            <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.sheetHeader}>
+                <h3 style={styles.sheetTitle}>Create New</h3>
+                <button style={styles.closeBtn} onClick={() => setShowPicker(false)}>
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div style={styles.pickerGrid}>
+                <button style={styles.pickerBtn} onClick={() => { setPostType("photo"); setShowPicker(false); }}>
+                  <span style={styles.icon}><Camera size={24} /></span> Photo
+                </button>
+                <button style={styles.pickerBtn} onClick={() => { setPostType("video"); setShowPicker(false); }}>
+                  <span style={styles.icon}><Video size={24} /></span> Video
+                </button>
+                <button style={styles.pickerBtn} onClick={() => { setPostType("text"); setShowPicker(false); }}>
+                  <span style={styles.icon}><FileText size={24} /></span> Text
+                </button>
+              </div>
+
+              <p style={styles.hint}>Your identity is hidden. Speak freely.</p>
             </div>
-
-            <div style={styles.pickerGrid}>
-              <button style={styles.pickerBtn} onClick={() => { setPostType("photo"); setShowPicker(false); }}>
-                <span style={styles.icon}>📷</span> Photo
-              </button>
-              <button style={styles.pickerBtn} onClick={() => { setPostType("video"); setShowPicker(false); }}>
-                <span style={styles.icon}>🎥</span> Video
-              </button>
-              <button style={styles.pickerBtn} onClick={() => { setPostType("text"); setShowPicker(false); }}>
-                <span style={styles.icon}>📝</span> Text
-              </button>
-            </div>
-
-            <p style={styles.hint}>Your identity is hidden. Speak freely.</p>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* SHOW POST FORM WHEN TYPE SELECTED */}
-      {postType && <CreatePostModal type={postType} onClose={() => setPostType(null)} onPostCreated={() => setRefreshKey(k => k + 1)} />}
-    </BrowserRouter>
+        {/* SHOW POST FORM WHEN TYPE SELECTED */}
+        {postType && <CreatePostModal type={postType} onClose={() => setPostType(null)} onPostCreated={() => {
+          setRefreshKey(k => k + 1);
+          queryClient.invalidateQueries({ queryKey: ['posts'] }); // REFRESH CACHE
+        }} />}
+      </BrowserRouter>
+    </QueryClientProvider>
   )
 }
 

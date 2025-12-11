@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import useGeoLocation from "../hooks/useGeoLocation"; // Import Hook
+import { MapPin } from "lucide-react";
 
 export default function CreatePostModal({ type, onClose, onPostCreated }) {
   const [file, setFile] = useState(null);
@@ -7,6 +9,17 @@ export default function CreatePostModal({ type, onClose, onPostCreated }) {
   const [body, setBody] = useState("");
   const [tags, setTags] = useState("");
   const [alias, setAlias] = useState("");
+  const [isLocating, setIsLocating] = useState(false);
+
+  // Auto-detect location
+  const { city, state, detectLocation, loading: locLoading } = useGeoLocation();
+
+  // Trigger detection on open if not set
+  useEffect(() => {
+    if (!city && !state) {
+      detectLocation();
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,10 +31,15 @@ export default function CreatePostModal({ type, onClose, onPostCreated }) {
     formData.append("tags", tags);
     formData.append("alias", alias);
 
+    // Add Location Data
+    if (city) formData.append("location_city", city);
+    if (state) formData.append("location_state", state);
+
     if (type === "text") formData.append("body", body);
     else if (file) formData.append("file", file);
 
-    const res = await fetch("https://backend-hzn5lagqd-dhaneshs-projects-fb9f1328.vercel.app/api/posts", {
+    const API_BASE = import.meta.env.VITE_API_URL || "https://testing-7ctl.vercel.app";
+    const res = await fetch(`${API_BASE}/api/posts`, {
       method: "POST",
       body: formData
     });
@@ -37,6 +55,15 @@ export default function CreatePostModal({ type, onClose, onPostCreated }) {
     <div style={styles.overlay} onClick={onClose}>
       <form style={styles.modal} onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <h2 style={{ marginBottom: "10px" }}>Create {type} post</h2>
+
+        {/* Location Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#888', marginBottom: '10px' }}>
+          <MapPin size={14} />
+          {locLoading ? <span>Detecting location...</span> :
+            city ? <span>Posting from <strong>{city}, {state}</strong></span> :
+              <span onClick={detectLocation} style={{ cursor: 'pointer', textDecoration: 'underline' }}>Tap to add location</span>
+          }
+        </div>
 
         <input required placeholder="College Name" value={college}
           onChange={(e) => setCollege(e.target.value)} style={styles.input} />

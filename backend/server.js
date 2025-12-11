@@ -9,28 +9,15 @@ dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Configure CORS - More explicit
-const corsOptions = {
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false
-};
-
-app.use(cors(corsOptions));
-
-// Add explicit CORS headers middleware
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Max-Age', '3600');
-  
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://testing-mu-brown-83.vercel.app"
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  credentials: true
+}));
 
 app.use(express.json());
 
@@ -70,7 +57,7 @@ async function uploadToStorage(file) {
 // CREATE POST
 app.post('/api/posts', upload.single('file'), async (req, res) => {
   try {
-    const { type, college, caption, body, tags, alias } = req.body;
+    const { type, college, caption, body, tags, alias, location_city, location_state } = req.body; // Added location fields
 
     if (!type || !['photo', 'video', 'text'].includes(type))
       return res.status(400).json({ error: 'Invalid type' });
@@ -97,7 +84,9 @@ app.post('/api/posts', upload.single('file'), async (req, res) => {
         body,
         media_url: mediaUrl,
         tags: tagList,
-        alias: postAlias
+        alias: postAlias,
+        location_city,   // Save city
+        location_state   // Save state
       })
       .select()
       .single();
@@ -117,17 +106,28 @@ app.post('/api/posts', upload.single('file'), async (req, res) => {
 // GET ALL POSTS
 app.get('/api/posts', async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, city, state } = req.query; // Added city, state
     let query = supabase
       .from('posts')
       .select('*')
       .order('created_at', { ascending: false });
 
+    // Location Filter Logic
+    if (city) {
+      // If city is provided, prioritize it. 
+      // Note: For strict filtering use .eq(). For "nearby" usage we might want strict city match
+      // OR fallback to state. For now, let's do STRICT city match if requested.
+      query = query.eq('location_city', city);
+    } else if (state) {
+      // If no city but state provided
+      query = query.eq('location_state', state);
+    }
+
     const { data, error } = await query;
 
     if (error) throw error;
 
-    // Client-side filtering for comprehensive search
+    // Client-side filtering for comprehensive search (remains same)
     if (search) {
       const searchLower = search.toLowerCase();
       const filtered = (data || []).filter(post => {
@@ -175,6 +175,65 @@ app.get('/api/posts/:id', async (req, res) => {
 
 // ==============================
 //        INTERACTIONS
+// ==============================
+
+// ==============================
+//  BATCHED INTERACTIONS
+// ==============================
+
+app.post('/api/interact-batch', async (req, res) => {
+  try {
+    const { interactions } = req.body; // Expects array of { postId, action_type, ... }
+
+    if (!Array.isArray(interactions) || interactions.length === 0) {
+      return res.json({ success: true, message: "No interactions to process" });
+    }
+
+    // Process all interactions in parallel
+    const results = await Promise.all(interactions.map(async (interaction) => {
+      const { postId, action_type, comment_text, reason } = interaction;
+
+      try {
+        if (action_type === 'upvote') {
+          await supabase.rpc('increment_post_meta', { pid: postId, col: 'upvotes' });
+        }
+        else if (action_type === 'downvote') {
+          await supabase.rpc('increment_post_meta', { pid: postId, col: 'downvotes' });
+        }
+        else if (action_type === 'report') {
+          // Check if report already exists to prevent spam in batch (optional, but good practice)
+          await supabase.from('reports').insert({
+            post_id: postId,
+            report_type: reason || 'false',
+            report_text: comment_text
+          });
+          await supabase.rpc('increment_post_meta', { pid: postId, col: 'reports' });
+        }
+        else if (action_type === 'comment') {
+          await supabase.from('comments').insert({
+            post_id: postId,
+            comment_text
+          });
+          await supabase.rpc('increment_post_meta', { pid: postId, col: 'comments' });
+        }
+        return { postId, success: true };
+      } catch (err) {
+        console.error(`Error processing interaction for post ${postId}:`, err);
+        return { postId, success: false, error: err.message };
+      }
+    }));
+
+    res.json({ success: true, results });
+
+  } catch (err) {
+    console.error("Batch interaction error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ==============================
+//        INTERACTIONS (Single - Legacy/Fallback)
 // ==============================
 
 app.post('/api/posts/:postId/interact', async (req, res) => {
@@ -405,6 +464,5 @@ if (!process.env.VERCEL) {
   );
 }
 
-// Export for Vercel and Node.js
-module.exports = app;
+// Export for Vercel
 export default app;

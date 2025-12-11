@@ -1,130 +1,145 @@
 import React, { useEffect, useState } from "react";
-const API_BASE = "https://backend-hzn5lagqd-dhaneshs-projects-fb9f1328.vercel.app";
-
+const API_BASE = import.meta.env.VITE_API_URL || "https://testing-7ctl.vercel.app";
 import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import useGeoLocation from "../hooks/useGeoLocation"; // Import Hook
+import { MapPin } from "lucide-react";
 
 export default function Posts({ refreshKey }) {
   const navigate = useNavigate();
-  const [posts, setPosts] = useState([]);
+  const queryClient = useQueryClient();
+  const { city, state, detectLocation, loading: locLoading } = useGeoLocation(); // Use Hook
+
   const [interactions, setInteractions] = useState({});
   const [newComment, setNewComment] = useState({});
   const [openComments, setOpenComments] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [reportPost, setReportPost] = useState(null);
   const [reportType, setReportType] = useState(null);
   const [reportText, setReportText] = useState("");
   const [reportFile, setReportFile] = useState(null);
 
+  // --- 1. POSTS QUERY (Filtered by Location) ---
+  const { data: posts = [], isLoading: loading, isError } = useQuery({
+    queryKey: ['posts', city, state], // Refetch when location changes
+    queryFn: async () => {
+      console.log(`Fetching posts... Location: ${city}, ${state}`);
+      let url = `${API_BASE}/api/posts`;
+
+      // Append query params if location exists
+      const params = new URLSearchParams();
+      if (city) params.append('city', city);
+      else if (state) params.append('state', state);
+
+      if (params.toString()) url += `?${params.toString()}`;
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      return res.json();
+    },
+    staleTime: 1000 * 60, // 1 minute fresh
+  });
+
+  // --- 2. INTERACTIONS STATE SYNC ---
+  // When posts change (or initial load), we sync interactions. 
+  // NOTE: Ideally, interactions should also be a query, but to keep optimistic UI logic simple with current batching,
+  // we will just fetch them once on mount/posts-change effectively.
+  useEffect(() => {
+    if (posts.length > 0) {
+      fetchInteractions(posts);
+    }
+  }, [posts]);
 
   useEffect(() => {
-    console.log('Component mounted, fetching posts');
-    fetchPosts(false);
+    if (refreshKey > 0) {
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
+    }
+  }, [refreshKey, queryClient]);
+
+
+  async function fetchInteractions(currentPosts) {
+    // Fetch interactions for all posts (could be optimized to bulk fetch in future)
+    const interData = {};
+
+    // OPTIMIZATION: Only fetch if we don't have it (optional, but good for cache)
+    // For now, we fetch to be safe on refresh.
+
+    await Promise.all(currentPosts.map(async (p) => {
+      try {
+        const resInt = await fetch(`${API_BASE}/api/posts/${p.id}/interactions`);
+        if (resInt.ok) {
+          const intJson = await resInt.json();
+          interData[p.id] = intJson;
+        }
+      } catch (err) {
+        console.error(`Error fetching interactions for ${p.id}:`, err);
+      }
+    }));
+
+    setInteractions(prev => ({ ...prev, ...interData }));
+  }
+
+  /* --- BATCHING & OPTIMISTIC UI LOGIC --- */
+  const pendingInteractions = React.useRef([]);
+  const batchTimer = React.useRef(null);
+
+  // Flush interactions to backend every 3 seconds if there are any
+  useEffect(() => {
+    batchTimer.current = setInterval(flushInteractions, 3000);
+    return () => clearInterval(batchTimer.current);
   }, []);
 
-  useEffect(() => {
-    console.log('RefreshKey changed:', refreshKey);
-    if (refreshKey > 0) fetchPosts(true);
-  }, [refreshKey]);
+  async function flushInteractions() {
+    if (pendingInteractions.current.length === 0) return;
 
-  useEffect(() => {
-    console.log('Interactions state updated:', interactions);
-  }, [interactions]);
+    const batch = [...pendingInteractions.current];
+    pendingInteractions.current = []; // Clear queue
 
-  function openReportModal(post) {
-    setReportPost(post);
-    setShowReport(true);
-  }
-
-  async function submitReport() {
-    if (!reportType) return alert("Select TRUE or FALSE");
-
-    const formData = new FormData();
-    formData.append("report_type", reportType);
-    formData.append("report_text", reportText);
-    if (reportFile) formData.append("proof", reportFile);
-
-    const res = await fetch(`${API_BASE}/api/posts/${reportPost.id}/report`, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (res.ok) {
-      setShowReport(false);
-      setReportType(null);
-      setReportText("");
-      setReportFile(null);
-      fetchPosts(true); // Refresh to show updated report count
-    } else {
-      alert("Error submitting report");
-    }
-  }
-
-
-  async function fetchPosts(isBackground = false) {
-    if (!isBackground) setLoading(true);
     try {
-      console.log('Fetching posts...');
-      const res = await fetch(`${API_BASE}/api/posts`);
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const data = await res.json();
-      console.log('Posts fetched:', data);
-      setPosts(data || []);
-
-      // Fetch interactions for all posts
-      const interData = {};
-      for (const p of data) {
-        try {
-          const resInt = await fetch(`${API_BASE}/api/posts/${p.id}/interactions`);
-          if (!resInt.ok) throw new Error(`HTTP error! status: ${resInt.status}`);
-          const intJson = await resInt.json();
-          console.log(`Interactions for ${p.id}:`, intJson);
-          interData[p.id] = intJson;
-        } catch (err) {
-          console.error(`Error fetching interactions for ${p.id}:`, err);
-          interData[p.id] = { upvotes: 0, downvotes: 0, comments: [], reports: 0 };
-        }
-      }
-      console.log('All interactions:', interData);
-      setInteractions(interData);
-    } catch (err) {
-      console.error('Error fetching posts:', err);
-    } finally { if (!isBackground) setLoading(false); }
-  }
-
-  async function interact(postId, type, commentText) {
-    try {
-      const res = await fetch(`${API_BASE}/api/posts/${postId}/interact`, {
+      console.log("Flushing interactions:", batch);
+      const res = await fetch(`${API_BASE}/api/interact-batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action_type: type, comment_text: commentText || null }),
+        body: JSON.stringify({ interactions: batch }),
       });
 
       if (!res.ok) {
-        console.error('Interact request failed:', await res.text());
-        return;
+        console.error("Failed to flush interactions", await res.text());
+        // Potential rollback logic could go here, but for now we prioritize speed.
+      } else {
+        console.log("Batch sync successful");
+      }
+    } catch (err) {
+      console.error("Batch flush error:", err);
+    }
+  }
+
+  function interact(postId, type, commentText) {
+    // 1. Optimistic UI Update
+    setInteractions(prev => {
+      const current = prev[postId] || { upvotes: 0, downvotes: 0, comments: [], reports: 0 };
+      let updated = { ...current };
+
+      if (type === 'upvote') updated.upvotes = (current.upvotes || 0) + 1;
+      if (type === 'downvote') updated.downvotes = (current.downvotes || 0) + 1;
+      if (type === 'comment') {
+        const newCommentObj = {
+          id: 'temp-' + Date.now(),
+          comment_text: commentText,
+          created_at: new Date().toISOString()
+        };
+        updated.comments = [newCommentObj, ...(current.comments || [])];
       }
 
-      const data = await res.json();
-      console.log('Interact response:', data);
+      return { ...prev, [postId]: updated };
+    });
 
-      // Small delay to ensure database update completes
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Refetch this post's interactions
-      const intRes = await fetch(`${API_BASE}/api/posts/${postId}/interactions`);
-      if (!intRes.ok) throw new Error('Failed to fetch interactions');
-      const intJson = await intRes.json();
-      console.log(`Updated interactions for ${postId}:`, intJson);
-
-      setInteractions(prev => ({
-        ...prev,
-        [postId]: intJson
-      }));
-
-    } catch (err) {
-      console.error('Interaction error:', err);
-    }
+    // 2. Add to Batch Queue
+    pendingInteractions.current.push({
+      postId,
+      action_type: type,
+      comment_text: commentText
+    });
   }
 
   function toggleComments(postId) {
@@ -143,7 +158,24 @@ export default function Posts({ refreshKey }) {
       <header style={styles.header}>
         <h1 className="text-gradient" style={styles.title}>Trending Posts</h1>
         <p style={styles.subtitle}>Discover, vote & discuss ideas openly.</p>
+
+        {/* Location Indicator */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '10px', fontSize: '14px', color: city ? '#00f2ea' : '#888' }}>
+          <MapPin size={16} />
+          {locLoading ? "Locating..." :
+            city ? <span>Nearby: <strong>{city}</strong></span> :
+              <span onClick={detectLocation} style={{ cursor: 'pointer', textDecoration: 'underline' }}>Enable Location</span>
+          }
+        </div>
       </header>
+
+      {/* Location Filter Message */}
+      {!loading && city && posts.length === 0 && (
+        <div style={styles.empty}>
+          No posts found in <strong>{city}</strong>.<br />
+          <span style={{ fontSize: '14px', color: '#888' }}>Be the first to post!</span>
+        </div>
+      )}
 
       <section className="feed-grid">
         {loading ? <div style={styles.loading}>Loading posts...</div> : posts.length === 0 ? (

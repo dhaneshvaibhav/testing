@@ -1,32 +1,56 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-
-const API_BASE = "https://backend-hzn5lagqd-dhaneshs-projects-fb9f1328.vercel.app";
+const API_BASE = import.meta.env.VITE_API_URL || "https://testing-7ctl.vercel.app";
+import { useQuery } from '@tanstack/react-query';
 
 export default function PostDetail() {
     const { id, college } = useParams();
     const navigate = useNavigate();
-    const [post, setPost] = useState(null);
+    // const [post, setPost] = useState(null); // Removed locally managed state
     const [interactions, setInteractions] = useState({});
     const [newComment, setNewComment] = useState("");
-    const [loading, setLoading] = useState(true);
+    // const [loading, setLoading] = useState(true); // Handled by useQuery
     const [showReport, setShowReport] = useState(false);
     const [reportType, setReportType] = useState(null);
     const [reportText, setReportText] = useState("");
     const [reportFile, setReportFile] = useState(null);
 
+    // --- 1. POST QUERY ---
+    const { data: post, isLoading: loading, error } = useQuery({
+        queryKey: ['post', id],
+        queryFn: async () => {
+            console.log(`Fetching post ${id} via React Query...`);
+            const res = await fetch(`${API_BASE}/api/posts/${id}`);
+            if (!res.ok) throw new Error(`Post not found`);
+            return res.json();
+        },
+        enabled: !!id, // Only run if ID exists
+        staleTime: 1000 * 60 * 5, // 5 minutes fresh
+    });
+
+    // --- 2. INTERACTIONS FETCH ---
+    // Fetch interactions when post loads. 
     useEffect(() => {
-        console.log('PostDetail mounted, college:', college, 'id:', id);
         if (id) {
-            fetchPostData();
-        } else {
-            console.error('No post ID in URL');
+            fetchInteractions();
         }
     }, [id]);
 
     useEffect(() => {
         console.log('PostDetail interactions updated:', interactions);
     }, [interactions]);
+
+    async function fetchInteractions() {
+        try {
+            const resInt = await fetch(`${API_BASE}/api/posts/${id}/interactions`);
+            if (resInt.ok) {
+                const intData = await resInt.json();
+                setInteractions(intData);
+            }
+        } catch (err) {
+            console.error('Error fetching interactions:', err);
+        }
+    }
 
     async function submitReport() {
         if (!reportType) {
@@ -50,73 +74,69 @@ export default function PostDetail() {
             setReportText("");
             setReportType(null);
             setReportFile(null);
-            fetchPostData(true);
+            // fetchPostData(true); // No longer needed for main post
         } else {
             alert("Error submitting report");
         }
     }
 
-    async function fetchPostData(isBackground = false) {
-        if (!isBackground) setLoading(true);
+    // Kept interact logic below...
+
+    /* --- BATCHING & OPTIMISTIC UI LOGIC --- */
+    const pendingInteractions = React.useRef([]);
+    const batchTimer = React.useRef(null);
+
+    // Flush interactions to backend every 3 seconds if there are any
+    useEffect(() => {
+        batchTimer.current = setInterval(flushInteractions, 3000);
+        return () => clearInterval(batchTimer.current);
+    }, []);
+
+    async function flushInteractions() {
+        if (pendingInteractions.current.length === 0) return;
+
+        const batch = [...pendingInteractions.current];
+        pendingInteractions.current = []; // Clear queue
+
         try {
-            console.log(`Fetching post with ID: ${id}`);
-            // Fetch Post
-            const res = await fetch(`${API_BASE}/api/posts/${id}`);
-            console.log(`Fetch response status: ${res.status}`);
-            if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(`Post not found: HTTP ${res.status} - ${errorText}`);
-            }
-            const data = await res.json();
-            console.log('Post data:', data);
-            setPost(data);
-
-            // Fetch Interactions
-            console.log(`Fetching interactions for post ${id}`);
-            const resInt = await fetch(`${API_BASE}/api/posts/${id}/interactions`);
-            console.log(`Interactions response status: ${resInt.status}`);
-            if (!resInt.ok) {
-                throw new Error(`Failed to fetch interactions: HTTP ${resInt.status}`);
-            }
-            const intData = await resInt.json();
-            console.log('PostDetail interactions:', intData);
-            setInteractions(intData);
-
-        } catch (err) {
-            console.error('Error fetching post:', err.message);
-            alert(`Error: ${err.message}`);
-        } finally { if (!isBackground) setLoading(false); }
-    }
-
-    async function interact(type, commentText) {
-        try {
-            const res = await fetch(`${API_BASE}/api/posts/${id}/interact`, {
+            console.log("Flushing interactions:", batch);
+            const res = await fetch(`${API_BASE}/api/interact-batch`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action_type: type, comment_text: commentText || null }),
+                body: JSON.stringify({ interactions: batch }),
             });
 
             if (!res.ok) {
-                console.error('Interact request failed:', await res.text());
-                return;
+                console.error("Failed to flush interactions", await res.text());
+            } else {
+                console.log("Batch sync successful");
             }
-
-            const result = await res.json();
-            console.log(`Interaction result for ${type}:`, result);
-
-            // Small delay to ensure database update completes
-            await new Promise(resolve => setTimeout(resolve, 100));
-
-            // Immediately fetch updated interactions
-            const resInt = await fetch(`${API_BASE}/api/posts/${id}/interactions`);
-            if (!resInt.ok) throw new Error('Failed to fetch updated interactions');
-
-            const intData = await resInt.json();
-            console.log('Updated interactions:', intData);
-            setInteractions(intData);
         } catch (err) {
-            console.error(`Error during ${type}:`, err);
+            console.error("Batch flush error:", err);
         }
+    }
+
+    function interact(type, commentText) {
+        // 1. Optimistic UI Update
+        setInteractions(prev => {
+            const current = prev || { upvotes: 0, downvotes: 0, comments: [], reports: 0 };
+            return {
+                ...current,
+                upvotes: type === 'upvote' ? (current.upvotes || 0) + 1 : current.upvotes,
+                downvotes: type === 'downvote' ? (current.downvotes || 0) + 1 : current.downvotes,
+                comments: type === 'comment' ? [
+                    { id: 'temp-' + Date.now(), comment_text: commentText, created_at: new Date().toISOString() },
+                    ...(current.comments || [])
+                ] : current.comments
+            };
+        });
+
+        // 2. Add to Batch Queue
+        pendingInteractions.current.push({
+            postId: id,
+            action_type: type,
+            comment_text: commentText
+        });
     }
 
     function postComment() {

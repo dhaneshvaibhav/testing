@@ -1,4 +1,5 @@
 import React from 'react';
+import { Ban, Camera, Zap, Plus } from 'lucide-react';
 
 function StartingPage() {
     return (
@@ -18,12 +19,12 @@ function StartingPage() {
                     </p>
 
                     <div style={styles.bullets}>
-                        <div style={styles.bullet}>🚫 No Names</div>
-                        <div style={styles.bullet}>📸 Media Support</div>
-                        <div style={styles.bullet}>⚡ Instant</div>
+                        <div style={styles.bullet}><Ban size={18} style={{ marginRight: '8px', verticalAlign: 'text-bottom' }} /> No Names</div>
+                        <div style={styles.bullet}><Camera size={18} style={{ marginRight: '8px', verticalAlign: 'text-bottom' }} /> Media Support</div>
+                        <div style={styles.bullet}><Zap size={18} style={{ marginRight: '8px', verticalAlign: 'text-bottom' }} /> Instant</div>
                     </div>
 
-                    <p style={styles.note}>Tap the <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>+</span> button to start.</p>
+                    <p style={styles.note}>Tap the <span style={{ color: 'var(--primary)', fontWeight: 'bold', display: 'inline-flex', verticalAlign: 'middle' }}><Plus size={16} /></span> button to start.</p>
                 </header>
 
                 {/* INFO GRID */}
