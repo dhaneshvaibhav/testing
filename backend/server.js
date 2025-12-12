@@ -27,6 +27,13 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({ message: 'College Truth Board API is running' });
 });
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
 
 // --- SUPABASE INIT --- //
 const SUPABASE_URL = process.env.SUPABASE_URL;
