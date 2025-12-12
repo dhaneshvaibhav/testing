@@ -9,15 +9,17 @@ dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://testing-mu-brown-83.vercel.app"
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  credentials: true
-}));
+// Simple CORS middleware
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 app.use(express.json());
 
@@ -57,7 +59,7 @@ async function uploadToStorage(file) {
 // CREATE POST
 app.post('/api/posts', upload.single('file'), async (req, res) => {
   try {
-    const { type, college, caption, body, tags, alias, location_city, location_state } = req.body; // Added location fields
+    const { type, college, caption, body, tags, alias } = req.body;
 
     if (!type || !['photo', 'video', 'text'].includes(type))
       return res.status(400).json({ error: 'Invalid type' });
@@ -84,9 +86,7 @@ app.post('/api/posts', upload.single('file'), async (req, res) => {
         body,
         media_url: mediaUrl,
         tags: tagList,
-        alias: postAlias,
-        location_city,   // Save city
-        location_state   // Save state
+        alias: postAlias
       })
       .select()
       .single();
@@ -106,28 +106,17 @@ app.post('/api/posts', upload.single('file'), async (req, res) => {
 // GET ALL POSTS
 app.get('/api/posts', async (req, res) => {
   try {
-    const { search, city, state } = req.query; // Added city, state
+    const { search } = req.query;
     let query = supabase
       .from('posts')
       .select('*')
       .order('created_at', { ascending: false });
 
-    // Location Filter Logic
-    if (city) {
-      // If city is provided, prioritize it. 
-      // Note: For strict filtering use .eq(). For "nearby" usage we might want strict city match
-      // OR fallback to state. For now, let's do STRICT city match if requested.
-      query = query.eq('location_city', city);
-    } else if (state) {
-      // If no city but state provided
-      query = query.eq('location_state', state);
-    }
-
     const { data, error } = await query;
 
     if (error) throw error;
 
-    // Client-side filtering for comprehensive search (remains same)
+    // Client-side filtering for comprehensive search
     if (search) {
       const searchLower = search.toLowerCase();
       const filtered = (data || []).filter(post => {

@@ -1,15 +1,11 @@
 import React, { useEffect, useState } from "react";
-const API_BASE = import.meta.env.VITE_API_URL || "https://testing-7ctl.vercel.app";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import useGeoLocation from "../hooks/useGeoLocation"; // Import Hook
-import { MapPin } from "lucide-react";
 
 export default function Posts({ refreshKey }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { city, state, detectLocation, loading: locLoading } = useGeoLocation(); // Use Hook
-
   const [interactions, setInteractions] = useState({});
   const [newComment, setNewComment] = useState({});
   const [openComments, setOpenComments] = useState(null);
@@ -19,21 +15,12 @@ export default function Posts({ refreshKey }) {
   const [reportText, setReportText] = useState("");
   const [reportFile, setReportFile] = useState(null);
 
-  // --- 1. POSTS QUERY (Filtered by Location) ---
+  // --- 1. POSTS QUERY (No more explicit useEffect for fetching) ---
   const { data: posts = [], isLoading: loading, isError } = useQuery({
-    queryKey: ['posts', city, state], // Refetch when location changes
+    queryKey: ['posts'],
     queryFn: async () => {
-      console.log(`Fetching posts... Location: ${city}, ${state}`);
-      let url = `${API_BASE}/api/posts`;
-
-      // Append query params if location exists
-      const params = new URLSearchParams();
-      if (city) params.append('city', city);
-      else if (state) params.append('state', state);
-
-      if (params.toString()) url += `?${params.toString()}`;
-
-      const res = await fetch(url);
+      console.log('Fetching posts via React Query...');
+      const res = await fetch(`${API_BASE}/api/posts`);
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       return res.json();
     },
@@ -158,24 +145,7 @@ export default function Posts({ refreshKey }) {
       <header style={styles.header}>
         <h1 className="text-gradient" style={styles.title}>Trending Posts</h1>
         <p style={styles.subtitle}>Discover, vote & discuss ideas openly.</p>
-
-        {/* Location Indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '10px', fontSize: '14px', color: city ? '#00f2ea' : '#888' }}>
-          <MapPin size={16} />
-          {locLoading ? "Locating..." :
-            city ? <span>Nearby: <strong>{city}</strong></span> :
-              <span onClick={detectLocation} style={{ cursor: 'pointer', textDecoration: 'underline' }}>Enable Location</span>
-          }
-        </div>
       </header>
-
-      {/* Location Filter Message */}
-      {!loading && city && posts.length === 0 && (
-        <div style={styles.empty}>
-          No posts found in <strong>{city}</strong>.<br />
-          <span style={{ fontSize: '14px', color: '#888' }}>Be the first to post!</span>
-        </div>
-      )}
 
       <section className="feed-grid">
         {loading ? <div style={styles.loading}>Loading posts...</div> : posts.length === 0 ? (

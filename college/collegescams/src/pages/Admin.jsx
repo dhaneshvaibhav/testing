@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "https://testing-7ctl.vercel.app";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function Admin() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
