@@ -24,8 +24,8 @@ function App() {
       <BrowserRouter>
         <Navbar />
         <Routes>
-          <Route path="/" element={<StartingPage />} />
-          <Route path="/posts" element={<Posts refreshKey={refreshKey} />} />
+          <Route path="/home" element={<StartingPage />} />
+          <Route path="/" element={<Posts refreshKey={refreshKey} />} />
           <Route path="/search" element={<Search />} />
           <Route path="/about" element={<About />} />
           <Route path="/secret" element={<Admin />} />
