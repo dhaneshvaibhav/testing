@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 

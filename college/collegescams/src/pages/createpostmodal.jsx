@@ -21,7 +21,7 @@ export default function CreatePostModal({ type, onClose, onPostCreated }) {
     if (type === "text") formData.append("body", body);
     else if (file) formData.append("file", file);
 
-    const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+    const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
     const res = await fetch(`${API_BASE}/api/posts`, {
       method: "POST",
       body: formData
