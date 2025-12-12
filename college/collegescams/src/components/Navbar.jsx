@@ -20,8 +20,8 @@ function Navbar() {
             </button>
 
             <div className={`nav-links ${isMenuOpen ? 'open' : ''}`}>
-                <Link className={`nav-link ${active === '/' ? 'active' : ''}`} to="/" onClick={() => setIsMenuOpen(false)}>Home</Link>
-                <Link className={`nav-link ${active === '/posts' ? 'active' : ''}`} to="/posts" onClick={() => setIsMenuOpen(false)}>Posts</Link>
+                <Link className={`nav-link ${active === '/home' ? 'active' : ''}`} to="/home" onClick={() => setIsMenuOpen(false)}>Home</Link>
+                <Link className={`nav-link ${active === '/' ? 'active' : ''}`} to="/" onClick={() => setIsMenuOpen(false)}>Posts</Link>
                 <Link className={`nav-link ${active === '/search' ? 'active' : ''}`} to="/search" onClick={() => setIsMenuOpen(false)}>Search</Link>
                 <Link className={`nav-link ${active === '/about' ? 'active' : ''}`} to="/about" onClick={() => setIsMenuOpen(false)}>About</Link>
             </div>
