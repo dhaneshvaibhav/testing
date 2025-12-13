@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+
+# Allow all major search engines to crawl the site
+Allow: /home
+Allow: /search
+Allow: /about
+Allow: /privacy
+Allow: /terms
+
+# Disallow admin and sensitive areas
+Disallow: /secret
+Disallow: /admin
+
+# Sitemap location
+Sitemap: https://collegaess.com/sitemap.xml
+
+# Crawl delay (optional)
+Crawl-delay: 1

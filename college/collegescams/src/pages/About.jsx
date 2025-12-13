@@ -1,9 +1,17 @@
 import React from 'react';
 import { Home, PlusCircle, Search, Info, MapPin, Shield, EyeOff } from 'lucide-react';
+import SEO from '../components/SEO.jsx';
 
 export default function About() {
     return (
-        <div className="container-narrow" style={{ paddingTop: '80px', color: '#fff' }}>
+        <>
+            <SEO
+                title="About Collegaess - Anonymous College Reviews & Truth Platform"
+                description="Learn about Collegaess - the anonymous platform where students share honest college reviews, expose scams, and reveal the truth about campus life, placements, faculty, and infrastructure."
+                keywords="about collegaess, anonymous college reviews, college truth platform, student experiences, college transparency"
+                type="article"
+            />
+            <div className="container-narrow" style={{ paddingTop: '80px', color: '#fff' }}>
             <header style={{ textAlign: 'center', marginBottom: '60px' }}>
                 <h1 className="text-gradient" style={{ fontSize: '3rem', marginBottom: '20px', fontWeight: '900' }}>
                     The REAL Truth Comes Out
@@ -145,6 +153,7 @@ export default function About() {
                 </p>
             </section>
         </div>
+        </>
     );
 }
 

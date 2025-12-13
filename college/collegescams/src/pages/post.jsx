@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import CollegeLocationFilter from "../components/CollegeLocationFilter.jsx";
+import SEO from "../components/SEO.jsx";
 
 export default function Posts({ refreshKey }) {
   const navigate = useNavigate();
@@ -14,6 +16,8 @@ export default function Posts({ refreshKey }) {
   const [reportType, setReportType] = useState(null);
   const [reportText, setReportText] = useState("");
   const [reportFile, setReportFile] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [filteredPosts, setFilteredPosts] = useState([]);
 
   // --- 1. POSTS QUERY (No more explicit useEffect for fetching) ---
   const { data: posts = [], isLoading: loading, isError } = useQuery({
@@ -140,17 +144,155 @@ export default function Posts({ refreshKey }) {
     setNewComment(prev => ({ ...prev, [postId]: "" }));
   }
 
+  // Location-based filtering
+  const handleLocationChange = (location) => {
+    setUserLocation(location);
+  };
+
+  const handleCollegesFiltered = (colleges) => {
+    // Filter posts based on colleges in user's location
+    const collegeNames = colleges.map(college => college.name.toLowerCase());
+    const locationFilteredPosts = posts.filter(post => {
+      if (!post.college) return false;
+      return collegeNames.some(collegeName =>
+        post.college.toLowerCase().includes(collegeName) ||
+        collegeName.includes(post.college.toLowerCase())
+      );
+    });
+    setFilteredPosts(locationFilteredPosts);
+  };
+
   return (
-    <div className="container-narrow" style={{ paddingTop: '40px' }}>
+    <>
+      <SEO
+        title="College Reviews & Experiences - Collegaess"
+        description="Read anonymous college reviews, student experiences, and honest opinions about colleges, placements, faculty, infrastructure, and campus life. Share your story anonymously."
+        keywords="college reviews, student experiences, anonymous reviews, college ratings, campus life, placements, faculty reviews"
+        type="website"
+      />
+      <div className="container-narrow" style={{ paddingTop: '40px' }}>
       <header style={styles.header}>
         <h1 className="text-gradient" style={styles.title}>Trending Posts</h1>
         <p style={styles.subtitle}>Discover, vote & discuss ideas openly.</p>
       </header>
 
+      <CollegeLocationFilter
+        onLocationChange={handleLocationChange}
+        onCollegesFiltered={handleCollegesFiltered}
+      />
+
       <section className="feed-grid">
-        {loading ? <div style={styles.loading}>Loading posts...</div> : posts.length === 0 ? (
-          <div style={styles.empty}>No posts yet...</div>
-        ) : posts.map(post => (
+        {loading ? <div style={styles.loading}>Loading posts...</div> : (userLocation && filteredPosts.length === 0) ? (
+          <div style={styles.empty}>
+            <p>No posts from colleges in {userLocation.city} yet.</p>
+            <p>Be the first to share your experience!</p>
+          </div>
+        ) : (userLocation && filteredPosts.length > 0) ? filteredPosts.map(post => (
+          <article
+            key={post.id}
+            className="post-card"
+            style={{ ...styles.postCard, cursor: 'pointer' }}
+            onClick={() => navigate(`/${post.college}/${post.id}`)}
+          >
+            {/* HEADER */}
+            <div style={styles.postHeader}>
+              <div style={styles.userInfo}>
+                <div style={styles.avatar}>{post.college ? post.college[0].toUpperCase() : "?"}</div>
+                <div>
+                  <h3 style={styles.alias}>{post.college || "Unknown College"}</h3>
+                  {/* <p style={styles.college}>{post.alias || "Anonymous"}</p> */}
+                </div>
+              </div>
+              <span style={styles.typeBadge}>{post.type?.toUpperCase() || "POST"}</span>
+            </div>
+
+            {/* MEDIA */}
+            {post.media_url && (
+              <div style={styles.mediaContainer}>
+                {post.type === "video" ? <video src={post.media_url} controls style={styles.media} /> : <img src={post.media_url} style={styles.media} />}
+              </div>
+            )}
+
+            {/* CONTENT */}
+            <div style={styles.content}>
+              <h2 style={styles.caption}>{post.caption || post.body?.substring(0, 60)}</h2>
+              {post.tags && post.tags.map((tag, i) => <span key={i} style={styles.tag}>#{tag}</span>)}
+            </div>
+
+            {/* ACTIONS - MINIMAL REDESIGN */}
+            <div style={styles.actionRow}>
+              {/* VOTE PILL */}
+              <div style={styles.votePill}>
+                <button
+                  style={styles.voteBtn}
+                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'upvote'); }}
+                  onMouseEnter={(e) => e.target.style.color = '#00f2ea'}
+                  onMouseLeave={(e) => e.target.style.color = '#fff'}
+                  title={`Upvotes: ${interactions[post.id]?.upvotes || 0}`}
+                >
+                  <UpIcon />
+                  <span style={styles.count}>{typeof interactions[post.id]?.upvotes === 'number' ? interactions[post.id].upvotes : 0}</span>
+                </button>
+                <div style={styles.divider}></div>
+                <button
+                  style={styles.voteBtn}
+                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'downvote'); }}
+                  onMouseEnter={(e) => e.target.style.color = '#ff0055'}
+                  onMouseLeave={(e) => e.target.style.color = '#fff'}
+                  title={`Downvotes: ${interactions[post.id]?.downvotes || 0}`}
+                >
+                  <DownIcon />
+                  <span style={styles.count}>{typeof interactions[post.id]?.downvotes === 'number' ? interactions[post.id].downvotes : 0}</span>
+                </button>
+                <button
+                  style={styles.reportBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openReportModal(post);
+                  }}
+                >
+                  Report
+                </button>
+
+              </div>
+
+              {/* COMMENT BUTTON */}
+              <button
+                style={styles.commentBtn}
+                onClick={(e) => { e.stopPropagation(); toggleComments(post.id); }}
+                title={`Comments: ${Array.isArray(interactions[post.id]?.comments) ? interactions[post.id].comments.length : 0}`}
+              >
+                <CommentIcon />
+                <span>{Array.isArray(interactions[post.id]?.comments) ? interactions[post.id].comments.length : 0}</span>
+              </button>
+
+            </div>
+
+            {/* COMMENTS */}
+            {openComments === post.id && (
+              <div style={styles.commentsSection} onClick={(e) => e.stopPropagation()}>
+                <div style={{ marginBottom: '15px' }}>
+                  {Array.isArray(interactions[post.id]?.comments) && interactions[post.id].comments.length > 0 ? (
+                    interactions[post.id].comments.map(c => (
+                      <div key={c.id} style={styles.commentBubble}>
+                        <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#fff' }}>{c.comment_text}</p>
+                        <span style={{ fontSize: '12px', color: '#888' }}>
+                          {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p style={{ color: '#888', fontSize: '14px' }}>No comments yet. Be the first!</p>
+                  )}
+                </div>
+                <div style={styles.commentInputBox}>
+                  <input value={newComment[post.id] || ""} placeholder="Add comment..." onChange={e => setNewComment(prev => ({ ...prev, [post.id]: e.target.value }))} onKeyDown={e => e.key === 'Enter' && postComment(post.id)} style={styles.input} />
+                  <button onClick={() => postComment(post.id)} style={styles.sendBtn}>Send</button>
+                </div>
+              </div>
+            )}
+          </article>
+        )) : posts.map(post => (
           <article
             key={post.id}
             className="post-card"
@@ -321,6 +463,7 @@ export default function Posts({ refreshKey }) {
 
     </div>
 
+    </>
   );
 
 }

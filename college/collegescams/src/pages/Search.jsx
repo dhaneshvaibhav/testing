@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
+import SEO from "../components/SEO.jsx";
 
 export default function Search() {
     const navigate = useNavigate();
@@ -34,7 +35,14 @@ export default function Search() {
     }
 
     return (
-        <div className="container-narrow" style={{ paddingTop: '40px' }}>
+        <>
+            <SEO
+                title="Search College Reviews - Collegaess"
+                description="Search through anonymous college reviews, experiences, and posts. Find honest opinions about colleges, placements, faculty, infrastructure, and campus life."
+                keywords="search college reviews, find college posts, college search, student reviews search"
+                type="website"
+            />
+            <div className="container-narrow" style={{ paddingTop: '40px' }}>
             <header style={styles.header}>
                 <h1 className="text-gradient" style={styles.title}>Search Posts</h1>
                 <input
@@ -82,6 +90,7 @@ export default function Search() {
                 )}
             </section>
         </div>
+        </>
     );
 }
 
