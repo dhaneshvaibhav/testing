@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
+import voteManager from './vote-manager.js';
+import cacheManager from './cache-manager.js';
 
 dotenv.config();
 const app = express();
@@ -38,6 +40,9 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const BUCKET = process.env.SUPABASE_BUCKET || 'collegeass';
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// --- INITIALIZE REDIS VOTE SYNC --- //
+voteManager.initializeSyncInterval(supabase);
 
 // --- STORAGE HELPER --- //
 async function uploadToStorage(file) {
@@ -101,6 +106,9 @@ app.post('/api/posts', upload.single('file'), async (req, res) => {
     // Create post_meta row
     await supabase.from('post_meta').insert({ post_id: post.id });
 
+    // Clear posts cache (new post created)
+    await cacheManager.clearPostsCache();
+
     res.status(201).json(post);
 
   } catch (err) {
@@ -112,6 +120,21 @@ app.post('/api/posts', upload.single('file'), async (req, res) => {
 app.get('/api/posts', async (req, res) => {
   try {
     const { search } = req.query;
+    
+    // If search exists, try cache first
+    if (search) {
+      const cachedResults = await cacheManager.getSearchResultsCache(search);
+      if (cachedResults) {
+        return res.json(cachedResults);
+      }
+    } else {
+      // No search, check main posts cache
+      const cachedPosts = await cacheManager.getPostsListCache('posts:all');
+      if (cachedPosts) {
+        return res.json(cachedPosts);
+      }
+    }
+
     let query = supabase
       .from('posts')
       .select('*')
@@ -137,8 +160,13 @@ app.get('/api/posts', async (req, res) => {
         }
         return false;
       });
+      
+      // Cache search results
+      await cacheManager.cacheSearchResults(search, filtered);
       res.json(filtered);
     } else {
+      // Cache all posts
+      await cacheManager.cachePostsList('posts:all', data || []);
       res.json(data || []);
     }
 
@@ -152,6 +180,12 @@ app.get('/api/posts/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Try cache first
+    const cachedPost = await cacheManager.getSinglePostCache(id);
+    if (cachedPost) {
+      return res.json(cachedPost);
+    }
+
     const { data, error } = await supabase
       .from('posts')
       .select('*')
@@ -160,6 +194,8 @@ app.get('/api/posts/:id', async (req, res) => {
 
     if (error) throw error;
 
+    // Cache the post
+    await cacheManager.cacheSinglePost(id, data);
     res.json(data);
 
   } catch (err) {
@@ -189,10 +225,12 @@ app.post('/api/interact-batch', async (req, res) => {
 
       try {
         if (action_type === 'upvote') {
-          await supabase.rpc('increment_post_meta', { pid: postId, col: 'upvotes' });
+          // Use Redis for upvotes
+          await voteManager.addVote(postId, 'upvotes');
         }
         else if (action_type === 'downvote') {
-          await supabase.rpc('increment_post_meta', { pid: postId, col: 'downvotes' });
+          // Use Redis for downvotes
+          await voteManager.addVote(postId, 'downvotes');
         }
         else if (action_type === 'report') {
           // Check if report already exists to prevent spam in batch (optional, but good practice)
@@ -240,20 +278,24 @@ app.post('/api/posts/:postId/interact', async (req, res) => {
 
     // ---- UPVOTE ---- //
     if (action_type === 'upvote') {
-      await supabase.rpc('increment_post_meta', {
-        pid: postId,
-        col: 'upvotes'
-      });
-      return res.json({ success: true });
+      // Store in Redis queue (instant!)
+      await voteManager.addVote(postId, 'upvotes');
+      
+      // Get current counts from Redis
+      const counts = await voteManager.getVoteCounts(postId);
+      
+      return res.json({ success: true, votes: counts });
     }
 
     // ---- DOWNVOTE ---- //
     if (action_type === 'downvote') {
-      await supabase.rpc('increment_post_meta', {
-        pid: postId,
-        col: 'downvotes'
-      });
-      return res.json({ success: true });
+      // Store in Redis queue (instant!)
+      await voteManager.addVote(postId, 'downvotes');
+      
+      // Get current counts from Redis
+      const counts = await voteManager.getVoteCounts(postId);
+      
+      return res.json({ success: true, votes: counts });
     }
 
     // ---- REPORT ---- //
@@ -269,6 +311,9 @@ app.post('/api/posts/:postId/interact', async (req, res) => {
         col: 'reports'
       });
 
+      // Clear post interaction cache
+      await cacheManager.clearPostsCache();
+
       return res.json({ success: true });
     }
 
@@ -283,6 +328,9 @@ app.post('/api/posts/:postId/interact', async (req, res) => {
         pid: postId,
         col: 'comments'
       });
+
+      // Clear post interaction cache
+      await cacheManager.clearPostsCache();
 
       return res.json({ success: true });
     }
@@ -307,7 +355,21 @@ app.get('/api/posts/:postId/interactions', async (req, res) => {
       .eq('post_id', postId)
       .order('created_at', { ascending: false });
 
-    // Fetch post_meta
+    // Try Redis cache first for vote counts
+    const redisCounts = await voteManager.getVoteCounts(postId);
+    
+    if (redisCounts.upvotes > 0 || redisCounts.downvotes > 0) {
+      // Use cached vote counts
+      console.log(`📦 Returning cached vote counts for ${postId}`);
+      return res.json({
+        upvotes: redisCounts.upvotes,
+        downvotes: redisCounts.downvotes,
+        comments: comments || [],
+        reports: 0 // Reports not cached for now
+      });
+    }
+
+    // If not in Redis, fetch from Supabase
     const { data: meta, error: metaError } = await supabase
       .from('post_meta')
       .select('upvotes, downvotes, comments, reports')
@@ -439,6 +501,9 @@ app.delete('/api/posts/:id', async (req, res) => {
 
     if (error) throw error;
 
+    // Clear cache for deleted post
+    await cacheManager.clearPostCache(id);
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -448,6 +513,16 @@ app.delete('/api/posts/:id', async (req, res) => {
 // ==============================
 //        SERVER START
 // ==============================
+
+// Cache stats endpoint
+app.get('/api/cache-stats', async (req, res) => {
+  try {
+    const stats = await cacheManager.getCacheStats();
+    res.json(stats || { message: 'Redis not available' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 const PORT = process.env.PORT || 8000;
 

@@ -17,9 +17,14 @@ export default function CreatePostModal({ type, onClose, onPostCreated }) {
     formData.append("caption", caption);
     formData.append("tags", tags);
     formData.append("alias", alias);
+    formData.append("body", body); // Include body for all post types
 
-    if (type === "text") formData.append("body", body);
-    else if (file) formData.append("file", file);
+    if (type !== "text" && file) {
+      formData.append("file", file);
+    } else if (type === "text" && !body) {
+      alert("Please write some text");
+      return;
+    }
 
     const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
     const res = await fetch(`${API_BASE}/api/posts`, {
@@ -56,11 +61,9 @@ export default function CreatePostModal({ type, onClose, onPostCreated }) {
             onChange={(e) => setFile(e.target.files[0])} style={styles.input} />
         )}
 
-        {type === "text" && (
-          <textarea required placeholder="Write your post..."
-            value={body} onChange={(e) => setBody(e.target.value)}
-            style={{ ...styles.input, height: "120px" }} />
-        )}
+        <textarea required placeholder={type === "text" ? "Write your post..." : "Add a description or caption..."}
+          value={body} onChange={(e) => setBody(e.target.value)}
+          style={{ ...styles.input, height: "120px" }} />
 
         <button type="submit" style={styles.submit}>Post</button>
       </form>
