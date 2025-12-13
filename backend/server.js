@@ -9,12 +9,23 @@ dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Simple CORS middleware
+// Configure CORS - More explicit
+const corsOptions = {
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
+};
+
+app.use(cors(corsOptions));
+
+// Add explicit CORS headers middleware
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
+  res.header('Access-Control-Max-Age', '3600');
+  
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -26,11 +37,6 @@ app.use(express.json());
 // Health check endpoint
 app.get('/', (req, res) => {
   res.json({ message: 'College Truth Board API is running' });
-});
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-   });
 });
 
 // --- SUPABASE INIT --- //
@@ -169,65 +175,6 @@ app.get('/api/posts/:id', async (req, res) => {
 
 // ==============================
 //        INTERACTIONS
-// ==============================
-
-// ==============================
-//  BATCHED INTERACTIONS
-// ==============================
-
-app.post('/api/interact-batch', async (req, res) => {
-  try {
-    const { interactions } = req.body; // Expects array of { postId, action_type, ... }
-
-    if (!Array.isArray(interactions) || interactions.length === 0) {
-      return res.json({ success: true, message: "No interactions to process" });
-    }
-
-    // Process all interactions in parallel
-    const results = await Promise.all(interactions.map(async (interaction) => {
-      const { postId, action_type, comment_text, reason } = interaction;
-
-      try {
-        if (action_type === 'upvote') {
-          await supabase.rpc('increment_post_meta', { pid: postId, col: 'upvotes' });
-        }
-        else if (action_type === 'downvote') {
-          await supabase.rpc('increment_post_meta', { pid: postId, col: 'downvotes' });
-        }
-        else if (action_type === 'report') {
-          // Check if report already exists to prevent spam in batch (optional, but good practice)
-          await supabase.from('reports').insert({
-            post_id: postId,
-            report_type: reason || 'false',
-            report_text: comment_text
-          });
-          await supabase.rpc('increment_post_meta', { pid: postId, col: 'reports' });
-        }
-        else if (action_type === 'comment') {
-          await supabase.from('comments').insert({
-            post_id: postId,
-            comment_text
-          });
-          await supabase.rpc('increment_post_meta', { pid: postId, col: 'comments' });
-        }
-        return { postId, success: true };
-      } catch (err) {
-        console.error(`Error processing interaction for post ${postId}:`, err);
-        return { postId, success: false, error: err.message };
-      }
-    }));
-
-    res.json({ success: true, results });
-
-  } catch (err) {
-    console.error("Batch interaction error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// ==============================
-//        INTERACTIONS (Single - Legacy/Fallback)
 // ==============================
 
 app.post('/api/posts/:postId/interact', async (req, res) => {
@@ -458,5 +405,6 @@ if (!process.env.VERCEL) {
   );
 }
 
-// Export for Vercel
+// Export for Vercel and Node.js
+module.exports = app;
 export default app;
