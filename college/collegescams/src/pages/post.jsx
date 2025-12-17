@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
-const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import CollegeLocationFilter from "../components/CollegeLocationFilter.jsx";
 import SEO from "../components/SEO.jsx";
+import { MessageCircle, Heart, Share2, MoreHorizontal, AlertTriangle } from 'lucide-react';
+
+const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
 
 export default function Posts({ refreshKey }) {
   const navigate = useNavigate();
@@ -11,30 +12,23 @@ export default function Posts({ refreshKey }) {
   const [interactions, setInteractions] = useState({});
   const [newComment, setNewComment] = useState({});
   const [openComments, setOpenComments] = useState(null);
+  const [openMenuId, setOpenMenuId] = useState(null); // Track open menu
+  const [hiddenPosts, setHiddenPosts] = useState([]); // Track hidden posts locally
   const [showReport, setShowReport] = useState(false);
   const [reportPost, setReportPost] = useState(null);
-  const [reportType, setReportType] = useState(null);
-  const [reportText, setReportText] = useState("");
-  const [reportFile, setReportFile] = useState(null);
-  // const [userLocation, setUserLocation] = useState(null);
-  // const [filteredPosts, setFilteredPosts] = useState([]);
 
-  // --- 1. POSTS QUERY (No more explicit useEffect for fetching) ---
-  const { data: posts = [], isLoading: loading, isError } = useQuery({
+  // --- 1. POSTS QUERY ---
+  const { data: posts = [], isLoading: loading } = useQuery({
     queryKey: ['posts'],
     queryFn: async () => {
-      console.log('Fetching posts via React Query...');
       const res = await fetch(`${API_BASE}/api/posts`);
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       return res.json();
     },
-    staleTime: 1000 * 60, // 1 minute fresh
+    staleTime: 1000 * 60,
   });
 
-  // --- 2. INTERACTIONS STATE SYNC ---
-  // When posts change (or initial load), we sync interactions. 
-  // NOTE: Ideally, interactions should also be a query, but to keep optimistic UI logic simple with current batching,
-  // we will just fetch them once on mount/posts-change effectively.
+  // --- 2. INTERACTIONS SYNC ---
   useEffect(() => {
     if (posts.length > 0) {
       fetchInteractions(posts);
@@ -47,34 +41,33 @@ export default function Posts({ refreshKey }) {
     }
   }, [refreshKey, queryClient]);
 
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setOpenMenuId(null);
+    if (openMenuId) document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openMenuId]);
+
 
   async function fetchInteractions(currentPosts) {
-    // Fetch interactions for all posts (could be optimized to bulk fetch in future)
     const interData = {};
-
-    // OPTIMIZATION: Only fetch if we don't have it (optional, but good for cache)
-    // For now, we fetch to be safe on refresh.
-
     await Promise.all(currentPosts.map(async (p) => {
       try {
         const resInt = await fetch(`${API_BASE}/api/posts/${p.id}/interactions`);
         if (resInt.ok) {
-          const intJson = await resInt.json();
-          interData[p.id] = intJson;
+          interData[p.id] = await resInt.json();
         }
       } catch (err) {
-        console.error(`Error fetching interactions for ${p.id}:`, err);
+        console.error(err);
       }
     }));
-
     setInteractions(prev => ({ ...prev, ...interData }));
   }
 
-  /* --- BATCHING & OPTIMISTIC UI LOGIC --- */
-  const pendingInteractions = React.useRef([]);
-  const batchTimer = React.useRef(null);
+  /* --- BATCHING LOGIC --- */
+  const pendingInteractions = useRef([]);
+  const batchTimer = useRef(null);
 
-  // Flush interactions to backend every 3 seconds if there are any
   useEffect(() => {
     batchTimer.current = setInterval(flushInteractions, 3000);
     return () => clearInterval(batchTimer.current);
@@ -82,31 +75,21 @@ export default function Posts({ refreshKey }) {
 
   async function flushInteractions() {
     if (pendingInteractions.current.length === 0) return;
-
     const batch = [...pendingInteractions.current];
-    pendingInteractions.current = []; // Clear queue
+    pendingInteractions.current = [];
 
     try {
-      console.log("Flushing interactions:", batch);
-      const res = await fetch(`${API_BASE}/api/interact-batch`, {
+      await fetch(`${API_BASE}/api/interact-batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ interactions: batch }),
       });
-
-      if (!res.ok) {
-        console.error("Failed to flush interactions", await res.text());
-        // Potential rollback logic could go here, but for now we prioritize speed.
-      } else {
-        console.log("Batch sync successful");
-      }
     } catch (err) {
       console.error("Batch flush error:", err);
     }
   }
 
   function interact(postId, type, commentText) {
-    // 1. Optimistic UI Update
     setInteractions(prev => {
       const current = prev[postId] || { upvotes: 0, downvotes: 0, comments: [], reports: 0 };
       let updated = { ...current };
@@ -114,388 +97,276 @@ export default function Posts({ refreshKey }) {
       if (type === 'upvote') updated.upvotes = (current.upvotes || 0) + 1;
       if (type === 'downvote') updated.downvotes = (current.downvotes || 0) + 1;
       if (type === 'comment') {
-        const newCommentObj = {
-          id: 'temp-' + Date.now(),
-          comment_text: commentText,
-          created_at: new Date().toISOString()
-        };
+        const newCommentObj = { id: 'temp-' + Date.now(), comment_text: commentText, created_at: new Date().toISOString() };
         updated.comments = [newCommentObj, ...(current.comments || [])];
       }
-
       return { ...prev, [postId]: updated };
     });
 
-    // 2. Add to Batch Queue
-    pendingInteractions.current.push({
-      postId,
-      action_type: type,
-      comment_text: commentText
+    pendingInteractions.current.push({ postId, action_type: type, comment_text: commentText });
+  }
+
+  const handleShare = (post) => {
+    const url = `${window.location.origin}/${post.college}/${post.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      alert("Link copied to clipboard!");
+      setOpenMenuId(null);
     });
-  }
+  };
 
-  function toggleComments(postId) {
-    setOpenComments(openComments === postId ? null : postId);
-  }
-
-  function postComment(postId) {
-    const text = (newComment[postId] || "").trim();
-    if (!text) return;
-    interact(postId, 'comment', text);
-    setNewComment(prev => ({ ...prev, [postId]: "" }));
-  }
-
-  // Location-based filtering
-  // const handleLocationChange = (location) => {
-  //   setUserLocation(location);
-  // };
-
-  // const handleCollegesFiltered = (colleges) => {
-  //   // Filter posts based on colleges in user's location
-  //   const collegeNames = colleges.map(college => college.name.toLowerCase());
-  //   const locationFilteredPosts = posts.filter(post => {
-  //     if (!post.college) return false;
-  //     return collegeNames.some(collegeName =>
-  //       post.college.toLowerCase().includes(collegeName) ||
-  //       collegeName.includes(post.college.toLowerCase())
-  //     );
-  //   });
-  //   setFilteredPosts(locationFilteredPosts);
-  // };
+  const handleHide = (postId) => {
+    setHiddenPosts(prev => [...prev, postId]);
+    setOpenMenuId(null);
+  };
 
   return (
     <>
       <SEO
-        title="College Reviews & Experiences - Collegaess"
-        description="Read anonymous college reviews, student experiences, and honest opinions about colleges, placements, faculty, infrastructure, and campus life. Share your story anonymously."
-        keywords="college reviews, student experiences, anonymous reviews, college ratings, campus life, placements, faculty reviews"
+        title="College Reviews & Experiences"
+        description="Anonymous college reviews and student experiences."
+        keywords="college reviews, anonymous reviews"
         type="website"
       />
-      <div className="container-narrow" style={{ paddingTop: '40px' }}>
-      <header style={styles.header}>
-        <h1 className="text-gradient" style={styles.title}>Trending Posts</h1>
-        <p style={styles.subtitle}>Discover, vote & discuss ideas openly.</p>
-      </header>
 
-      {/* <CollegeLocationFilter
-        onLocationChange={handleLocationChange}
-        onCollegesFiltered={handleCollegesFiltered}
-      /> */}
+      <div className="container" style={{ paddingTop: '20px' }}>
 
-      <section className="feed-grid">
-        {loading ? <div style={styles.loading}>Loading posts...</div> : posts.length === 0 ? (
-          <div style={styles.empty}>No posts yet...</div>
-        ) : posts.map(post => (
-          <article
-            key={post.id}
-            className="post-card"
-            style={{ ...styles.postCard, cursor: 'pointer' }}
-            onClick={() => navigate(`/${post.college}/${post.id}`)}
-          >
-            {/* HEADER */}
-            <div style={styles.postHeader}>
-              <div style={styles.userInfo}>
-                <div style={styles.avatar}>{post.college ? post.college[0].toUpperCase() : "?"}</div>
-                <div>
-                  <h3 style={styles.alias}>{post.college || "Unknown College"}</h3>
-                  {/* <p style={styles.college}>{post.alias || "Anonymous"}</p> */}
-                </div>
-              </div>
-              <span style={styles.typeBadge}>{post.type?.toUpperCase() || "POST"}</span>
-            </div>
+        {/* Mobile Header */}
+        <header style={{ marginBottom: '20px', padding: '0 10px' }}>
+          <h1 className="text-gradient" style={{ fontSize: '24px' }}>Stream</h1>
+        </header>
 
-            {/* MEDIA */}
-            {post.media_url && (
-              <div style={styles.mediaContainer}>
-                {post.type === "video" ? <video src={post.media_url} controls style={styles.media} /> : <img src={post.media_url} style={styles.media} />}
-              </div>
-            )}
+        <section className="feed-grid">
+          {loading ? (
+            <div style={{ textAlign: "center", color: "#666", padding: "40px" }}>Loading...</div>
+          ) : posts.filter(p => !hiddenPosts.includes(p.id)).length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px", color: "#666" }}>No posts yet...</div>
+          ) : posts.filter(p => !hiddenPosts.includes(p.id)).map(post => {
+            const postInt = interactions[post.id] || {};
+            const upvotes = postInt.upvotes || 0;
+            const downvotes = postInt.downvotes || 0;
+            const comments = postInt.comments || [];
 
-            {/* CONTENT */}
-            <div style={styles.content}>
-              <h2 style={styles.caption}>{post.caption || post.body?.substring(0, 60)}</h2>
-              {post.tags && post.tags.map((tag, i) => <span key={i} style={styles.tag}>#{tag}</span>)}
-            </div>
-
-            {/* ACTIONS - MINIMAL REDESIGN */}
-            <div style={styles.actionRow}>
-              {/* VOTE PILL */}
-              <div style={styles.votePill}>
-                <button
-                  style={styles.voteBtn}
-                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'upvote'); }}
-                  onMouseEnter={(e) => e.target.style.color = '#00f2ea'}
-                  onMouseLeave={(e) => e.target.style.color = '#fff'}
-                  title={`Upvotes: ${interactions[post.id]?.upvotes || 0}`}
-                >
-                  <UpIcon />
-                  <span style={styles.count}>{typeof interactions[post.id]?.upvotes === 'number' ? interactions[post.id].upvotes : 0}</span>
-                </button>
-                <div style={styles.divider}></div>
-                <button
-                  style={styles.voteBtn}
-                  onClick={(e) => { e.stopPropagation(); interact(post.id, 'downvote'); }}
-                  onMouseEnter={(e) => e.target.style.color = '#ff0055'}
-                  onMouseLeave={(e) => e.target.style.color = '#fff'}
-                  title={`Downvotes: ${interactions[post.id]?.downvotes || 0}`}
-                >
-                  <DownIcon />
-                  <span style={styles.count}>{typeof interactions[post.id]?.downvotes === 'number' ? interactions[post.id].downvotes : 0}</span>
-                </button>
-                <button
-                  style={styles.reportBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openReportModal(post);
-                  }}
-                >
-                  Report
-                </button>
-
-              </div>
-
-              {/* COMMENT BUTTON */}
-              <button
-                style={styles.commentBtn}
-                onClick={(e) => { e.stopPropagation(); toggleComments(post.id); }}
-                title={`Comments: ${Array.isArray(interactions[post.id]?.comments) ? interactions[post.id].comments.length : 0}`}
+            return (
+              <article
+                key={post.id}
+                className="post-card"
+                onClick={() => navigate(`/${post.college}/${post.id}`)}
               >
-                <CommentIcon />
-                <span>{Array.isArray(interactions[post.id]?.comments) ? interactions[post.id].comments.length : 0}</span>
-              </button>
+                {/* HEADER */}
+                <div className="post-header">
+                  <div className="user-info">
+                    <div className="avatar">
+                      {post.college ? post.college[0].toUpperCase() : "?"}
+                    </div>
+                    <div>
+                      <div className="alias">{post.college || "Unknown College"}</div>
+                      {post.college && <div className="college-name">{post.alias || "Anonymous Student"}</div>}
+                    </div>
+                  </div>
 
-            </div>
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="action-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(openMenuId === post.id ? null : post.id);
+                      }}
+                    >
+                      <MoreHorizontal size={20} color="var(--text-secondary)" />
+                    </button>
 
-            {/* COMMENTS */}
-            {openComments === post.id && (
-              <div style={styles.commentsSection} onClick={(e) => e.stopPropagation()}>
-                <div style={{ marginBottom: '15px' }}>
-                  {Array.isArray(interactions[post.id]?.comments) && interactions[post.id].comments.length > 0 ? (
-                    interactions[post.id].comments.map(c => (
-                      <div key={c.id} style={styles.commentBubble}>
-                        <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#fff' }}>{c.comment_text}</p>
-                        <span style={{ fontSize: '12px', color: '#888' }}>
-                          {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString()}
-                        </span>
+                    {openMenuId === post.id && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        right: 0,
+                        background: '#1a1a1a',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: '12px',
+                        padding: '8px',
+                        zIndex: 10,
+                        minWidth: '140px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                      }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleShare(post)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            width: '100%', padding: '8px',
+                            background: 'none', border: 'none',
+                            color: 'white', fontSize: '14px', cursor: 'pointer',
+                            textAlign: 'left', borderRadius: '8px',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.05)'}
+                          onMouseLeave={(e) => e.target.style.background = 'none'}
+                        >
+                          <Share2 size={16} /> Share Link
+                        </button>
+                        <button
+                          onClick={() => handleHide(post.id)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            width: '100%', padding: '8px',
+                            background: 'none', border: 'none',
+                            color: '#ff4d4d', fontSize: '14px', cursor: 'pointer',
+                            textAlign: 'left', borderRadius: '8px',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.target.style.background = 'rgba(255,0,0,0.1)'}
+                          onMouseLeave={(e) => e.target.style.background = 'none'}
+                        >
+                          <AlertTriangle size={16} /> Hide Post
+                        </button>
                       </div>
-                    ))
-                  ) : (
-                    <p style={{ color: '#888', fontSize: '14px' }}>No comments yet. Be the first!</p>
-                  )}
+                    )}
+                  </div>
                 </div>
-                <div style={styles.commentInputBox}>
-                  <input value={newComment[post.id] || ""} placeholder="Add comment..." onChange={e => setNewComment(prev => ({ ...prev, [post.id]: e.target.value }))} onKeyDown={e => e.key === 'Enter' && postComment(post.id)} style={styles.input} />
-                  <button onClick={() => postComment(post.id)} style={styles.sendBtn}>Send</button>
+
+                {/* MEDIA */}
+                {post.media_url && (
+                  <div className="media-container">
+                    {post.type === "video" ? (
+                      <video src={post.media_url} controls className="post-media" />
+                    ) : (
+                      <img src={post.media_url} className="post-media" loading="lazy" />
+                    )}
+                  </div>
+                )}
+
+                {/* CONTENT */}
+                <div className="post-content">
+                  {post.caption && <h3 className="post-title">{post.caption}</h3>}
+                  {post.body && <p className="caption">{post.body}</p>}
+                  {!post.body && !post.caption && <p className="caption">...</p>}
+                  <div className="tags">
+                    {post.tags && post.tags.map((tag, i) => <span key={i} className="tag">#{tag}</span>)}
+                  </div>
                 </div>
+
+                {/* ACTIONS */}
+                <div className="action-row">
+                  <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '20px', padding: '4px 12px' }}>
+                      <button
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: upvotes > 0 ? 'var(--secondary)' : 'white', cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); interact(post.id, 'upvote'); }}
+                      >
+                        <UpIcon />
+                        <span style={{ fontWeight: 'bold' }}>{upvotes}</span>
+                      </button>
+                      <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.1)' }}></div>
+                      <button
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: downvotes > 0 ? 'var(--text-secondary)' : 'white', cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); interact(post.id, 'downvote'); }}
+                      >
+                        <DownIcon />
+                        <span style={{ fontWeight: 'bold' }}>{downvotes}</span>
+                      </button>
+                    </div>
+
+                    <button
+                      className="action-btn"
+                      onClick={(e) => { e.stopPropagation(); setOpenComments(openComments === post.id ? null : post.id); }}
+                    >
+                      <MessageCircle size={24} />
+                      <span>{comments.length}</span>
+                    </button>
+                  </div>
+
+                  <button
+                    className="action-btn"
+                    onClick={(e) => { e.stopPropagation(); setReportPost(post); setShowReport(true); }}
+                  >
+                    <AlertTriangle size={20} color="var(--text-secondary)" />
+                  </button>
+                </div>
+
+                {/* COMMENTS PREVIEW (If Open) */}
+                {openComments === post.id && (
+                  <div style={{ marginTop: '15px', padding: '0 16px', borderTop: '1px solid var(--border-light)', paddingTop: '15px' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Comments</h4>
+                      <button
+                        onClick={() => setOpenComments(null)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '13px' }}
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <input
+                        type="text"
+                        placeholder="Add a comment..."
+                        value={newComment[post.id] || ""}
+                        onChange={e => setNewComment(prev => ({ ...prev, [post.id]: e.target.value }))}
+                        style={{
+                          flex: 1,
+                          background: 'transparent',
+                          border: 'none',
+                          borderBottom: '1px solid var(--border-light)',
+                          color: 'white',
+                          padding: '8px 0',
+                          outline: 'none'
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          if (!newComment[post.id]) return;
+                          interact(post.id, 'comment', newComment[post.id]);
+                          setNewComment(prev => ({ ...prev, [post.id]: "" }));
+                        }}
+                        style={{ color: 'var(--primary)', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        Post
+                      </button>
+                    </div>
+                    <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {comments.map((c, idx) => (
+                        <div key={idx} style={{ fontSize: '14px' }}>
+                          <span style={{ fontWeight: '700', marginRight: '8px' }}>User</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>{c.comment_text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              </article>
+            )
+          })}
+        </section>
+
+        {showReport && (
+          <div style={{
+            position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+            background: "rgba(0,0,0,0.8)", zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center"
+          }} onClick={() => setShowReport(false)}>
+            <div style={{ background: "#1a1a1a", padding: "20px", borderRadius: "16px", width: "90%", maxWidth: "400px", border: "1px solid var(--border-light)" }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ marginBottom: "10px", color: "white" }}>Report Post</h3>
+              <p style={{ color: "var(--text-secondary)", marginBottom: "20px" }}>Are you sure you want to report this post?</p>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowReport(false)} style={{ color: "white", padding: "8px 16px", cursor: "pointer" }}>Cancel</button>
+                <button onClick={() => { alert("Report submitted!"); setShowReport(false); }} style={{ background: "red", color: "white", padding: "8px 16px", borderRadius: "8px", cursor: "pointer" }}>Report</button>
               </div>
-            )}
-          </article>
-        ))}
-      </section>
-      {showReport && (
-        <div style={styles.modalOverlay} onClick={() => setShowReport(false)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <h2 style={{ color: "#fff", margin: 0 }}>
-                Report Post
-              </h2>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowReport(false); }}
-                style={{ background: 'none', border: 'none', color: '#999', fontSize: '24px', cursor: 'pointer' }}
-              >
-                ×
-              </button>
             </div>
-
-            <p style={{ color: "#aaa", marginBottom: "20px" }}>
-              Is this post True or False? - {reportPost?.college}
-            </p>
-
-            <p style={{ color: "#aaa", marginBottom: "20px" }}>
-              Is this post True or False?
-            </p>
-
-            <div style={styles.reportButtons}>
-              <button
-                style={reportType === "true" ? styles.selectedBtn : styles.choiceBtn}
-                onClick={() => setReportType("true")}
-              >
-                TRUE
-              </button>
-
-              <button
-                style={reportType === "false" ? styles.selectedBtn : styles.choiceBtn}
-                onClick={() => setReportType("false")}
-              >
-                FALSE
-              </button>
-            </div>
-
-            <textarea
-              placeholder="Explain why you think this is true/false..."
-              style={styles.textArea}
-              value={reportText}
-              onChange={(e) => setReportText(e.target.value)}
-            />
-
-            <input
-              type="file"
-              accept="image/*,video/*"
-              style={{ marginTop: "10px", color: "#fff" }}
-              onChange={(e) => setReportFile(e.target.files[0])}
-            />
-
-            <button style={styles.submitBtn} onClick={submitReport}>
-              Submit Report
-            </button>
-
           </div>
-        </div>
-      )}
+        )}
 
-    </div>
-
+      </div>
     </>
   );
-
 }
 
-// ICONS
 const UpIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="18 15 12 9 6 15"></polyline>
   </svg>
 );
 
 const DownIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="6 9 12 15 18 9"></polyline>
   </svg>
 );
-
-const CommentIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-  </svg>
-);
-
-const styles = {
-  header: { textAlign: "center", marginBottom: "40px" },
-  title: { fontSize: "clamp(2rem, 5vw, 3rem)", fontWeight: "800", marginBottom: "10px" },
-  subtitle: { color: "#999", fontSize: "1.125rem" },
-  loading: { textAlign: "center", color: "#999", padding: "40px" },
-  empty: { textAlign: "center", padding: "60px", borderRadius: "24px", border: "1px solid rgba(255,255,255,0.1)", color: "#eee", fontSize: "20px" },
-  postCard: { background: "#1a1a1a", borderRadius: "24px", padding: "24px", boxShadow: "0 10px 40px rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.05)" },
-  postHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" },
-  userInfo: { display: "flex", alignItems: "center", gap: "12px" },
-  avatar: { width: "40px", height: "40px", borderRadius: "50%", background: "#628141", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "16px", color: "#fff" },
-  alias: { fontSize: "16px", fontWeight: "700", color: "#fff", textTransform: "uppercase" },
-  college: { fontSize: "12px", color: "#8BAE66", letterSpacing: "0.5px", fontWeight: "600" },
-  typeBadge: { fontSize: "10px", background: "rgba(255,255,255,0.1)", padding: "4px 8px", borderRadius: "6px", color: "#999", fontWeight: "600" },
-  mediaContainer: { borderRadius: "16px", overflow: "hidden", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.1)", background: "#000" },
-  media: { width: "100%", maxHeight: "500px", objectFit: "contain", display: "block" },
-  content: { marginBottom: "20px" },
-  caption: { fontSize: "1.25rem", fontWeight: "700", marginBottom: "10px", lineHeight: "1.3", color: "#f0f0f0" },
-  tag: { fontSize: "12px", color: "#8BAE66", background: "rgba(0,242,234,0.05)", padding: "4px 8px", borderRadius: "6px" },
-
-  actionRow: { display: "flex", gap: "12px", alignItems: "center", paddingTop: "6px" },
-  votePill: {
-    display: "flex", alignItems: "center", background: "rgba(255,255,255,0.05)",
-    borderRadius: "100px", border: "1px solid rgba(255,255,255,0.08)"
-  },
-  voteBtn: {
-    display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-    background: "none", border: "none", color: "#fff", cursor: "pointer", transition: "color 0.2s"
-  },
-  divider: { width: "1px", height: "16px", background: "rgba(255,255,255,0.1)" },
-  commentBtn: {
-    display: "flex", alignItems: "center", gap: "8px", padding: "8px 16px",
-    background: "rgba(255,255,255,0.05)", borderRadius: "100px", border: "1px solid rgba(255,255,255,0.08)",
-    color: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: "600", transition: "background 0.2s"
-  },
-  count: { fontSize: "14px", fontWeight: 700 },
-  reportBtn: {
-    padding: "8px 16px",
-    background: "rgba(255,0,0,0.1)",
-    border: "1px solid rgba(255,0,0,0.3)",
-    borderRadius: "100px",
-    color: "#ff4d4d",
-    cursor: "pointer",
-    fontWeight: "700",
-  },
-
-  modalOverlay: {
-    position: "fixed",
-    top: 0, left: 0,
-    width: "100vw", height: "100vh",
-    background: "rgba(0,0,0,0.7)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 9999,
-  },
-
-  modal: {
-    background: "#1a1a1a",
-    padding: "30px",
-    borderRadius: "20px",
-    width: "90%",
-    maxWidth: "480px",
-    border: "1px solid rgba(255,255,255,0.1)",
-  },
-
-  choiceBtn: {
-    padding: "10px 20px",
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "#fff",
-    borderRadius: "10px",
-    cursor: "pointer",
-    width: "45%",
-  },
-
-  selectedBtn: {
-    padding: "10px 20px",
-    background: "#628141",
-    border: "1px solid #8BAE66",
-    color: "#000",
-    borderRadius: "10px",
-    cursor: "pointer",
-    width: "45%",
-    fontWeight: "700",
-  },
-
-  reportButtons: {
-    display: "flex",
-    justifyContent: "space-between",
-    marginBottom: "20px",
-  },
-
-  textArea: {
-    width: "100%",
-    height: "100px",
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    padding: "12px",
-    color: "#fff",
-    borderRadius: "10px",
-    resize: "none",
-  },
-
-  submitBtn: {
-    marginTop: "20px",
-    width: "100%",
-    padding: "12px 16px",
-    background: "#628141",
-    color: "#000",
-    borderRadius: "12px",
-    fontWeight: "700",
-    cursor: "pointer",
-  },
-
-  commentsSection: { marginTop: "20px", paddingTop: "20px", borderTop: "1px solid rgba(255,255,255,0.1)" },
-  commentBubble: { background: "rgba(255,255,255,0.05)", padding: "10px 14px", borderRadius: "12px", fontSize: "14px", color: "#eee", marginBottom: "6px" },
-  commentInputBox: { display: "flex", gap: "10px" },
-  input: { flex: 1, background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)", padding: "12px 16px", borderRadius: "12px", color: "#fff", outline: "none", fontSize: "14px" },
-  sendBtn: { background: "#628141", color: "#000", padding: "0 20px", borderRadius: "12px", fontWeight: "700", fontSize: "14px", cursor: "pointer" },
-};

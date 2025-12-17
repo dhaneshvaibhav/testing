@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { BrowserRouter, Routes, Route } from "react-router-dom"
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query' // IMPORT
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { HelmetProvider } from 'react-helmet-async'
-import { Plus, Camera, Video, FileText, X } from 'lucide-react' // IMPORT ICONS
+import { Camera, Video, FileText, X } from 'lucide-react'
 import StartingPage from "./pages/startingpage.jsx"
 import Posts from "./pages/post.jsx"
 import PostDetail from "./pages/PostDetail.jsx"
@@ -14,17 +14,19 @@ import Terms from "./pages/Terms.jsx"
 import AgeVerification from "./pages/AgeVerification.jsx"
 import Navbar from "./components/Navbar.jsx"
 import Footer from "./components/Footer.jsx"
+import BottomNav from "./components/BottomNav.jsx" // NEW
+
 import SEO from "./components/SEO.jsx"
 import CreatePostModal from "./pages/createpostmodal.jsx"
 import "./index.css"
 
-const queryClient = new QueryClient() // INITIALIZE
+const queryClient = new QueryClient()
 
 function App() {
   const [showPicker, setShowPicker] = useState(false)
   const [postType, setPostType] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [ageVerified, setAgeVerified] = useState(false)
+  const [ageVerified, setAgeVerified] = useState(false) // TODO: Reset to true for dev if needed
 
   return (
     <HelmetProvider>
@@ -32,71 +34,76 @@ function App() {
         <SEO />
         <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
           <BrowserRouter>
-          <AgeVerification onVerified={() => setAgeVerified(true)} />
-          {ageVerified && <Navbar />}
-          {ageVerified && (
-            <>
-              <main style={{ flex: '1' }}>
-                <Routes>
-                  <Route path="/home" element={<StartingPage />} />
-                  <Route path="/" element={<Posts refreshKey={refreshKey} />} />
-                  <Route path="/search" element={<Search />} />
-                  <Route path="/about" element={<About />} />
-                  <Route path="/privacy" element={<Privacy />} />
-                  <Route path="/terms" element={<Terms />} />
-                  <Route path="/secret" element={<Admin />} />
-                  <Route path="/:college/:id" element={<PostDetail />} />
-                </Routes>
-              </main>
-              <Footer />
+            <AgeVerification onVerified={() => setAgeVerified(true)} />
 
-            {/* ➕ FLOATING BUTTON */}
-            <button
-              style={styles.fab}
-              onClick={() => setShowPicker(true)}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-            >
-              <Plus size={32} />
-            </button>
-
-            {/* 📌 Bottom sheet - Choose upload format */}
-            {showPicker && (
-              <div style={styles.overlay} onClick={() => setShowPicker(false)}>
-                <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
-                  <div style={styles.sheetHeader}>
-                    <h3 style={styles.sheetTitle}>Create New</h3>
-                    <button style={styles.closeBtn} onClick={() => setShowPicker(false)}>
-                      <X size={24} />
-                    </button>
-                  </div>
-
-                  <div style={styles.pickerGrid}>
-                    <button style={styles.pickerBtn} onClick={() => { setPostType("photo"); setShowPicker(false); }}>
-                      <span style={styles.icon}><Camera size={24} /></span> Photo
-                    </button>
-                    <button style={styles.pickerBtn} onClick={() => { setPostType("video"); setShowPicker(false); }}>
-                      <span style={styles.icon}><Video size={24} /></span> Video
-                    </button>
-                    <button style={styles.pickerBtn} onClick={() => { setPostType("text"); setShowPicker(false); }}>
-                      <span style={styles.icon}><FileText size={24} /></span> Text
-                    </button>
-                  </div>
-
-                  <p style={styles.hint}>Your identity is hidden. Speak freely.</p>
+            {ageVerified && (
+              <>
+                {/* Desktop Navbar */}
+                <div className="desktop-only text-red-500">
+                  <Navbar />
                 </div>
-              </div>
-            )}
 
-            {/* SHOW POST FORM WHEN TYPE SELECTED */}
-            {postType && <CreatePostModal type={postType} onClose={() => setPostType(null)} onPostCreated={() => {
-              setRefreshKey(k => k + 1);
-              queryClient.invalidateQueries({ queryKey: ['posts'] }); // REFRESH CACHE
-            }} />}
-          </>
-        )}
-        </BrowserRouter>
-      </div>
+                <main style={{ flex: '1' }}>
+                  <Routes>
+                    <Route path="/home" element={<StartingPage />} />
+                    <Route path="/" element={<Posts refreshKey={refreshKey} />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/about" element={<About />} />
+                    <Route path="/privacy" element={<Privacy />} />
+                    <Route path="/terms" element={<Terms />} />
+                    <Route path="/secret" element={<Admin />} />
+                    <Route path="/:college/:id" element={<PostDetail />} />
+                  </Routes>
+                </main>
+
+                {/* Footer only on desktop or specific pages if needed */}
+                <div className="desktop-only">
+                  <Footer />
+                </div>
+
+                {/* Mobile Bottom Nav */}
+                <div className="mobile-only">
+                  <BottomNav onOpenCreate={() => setShowPicker(true)} />
+                </div>
+
+                {/* 📌 Bottom sheet - Choose upload format */}
+                {showPicker && (
+                  <div style={styles.overlay} onClick={() => setShowPicker(false)}>
+                    <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+                      <div style={styles.sheetHeader}>
+                        <h3 style={styles.sheetTitle}>Create New</h3>
+                        <button style={styles.closeBtn} onClick={() => setShowPicker(false)}>
+                          <X size={24} />
+                        </button>
+                      </div>
+
+                      <div style={styles.pickerGrid}>
+                        <button style={styles.pickerBtn} onClick={() => { setPostType("photo"); setShowPicker(false); }}>
+                          <span style={styles.icon}><Camera size={24} /></span> Photo
+                        </button>
+                        <button style={styles.pickerBtn} onClick={() => { setPostType("video"); setShowPicker(false); }}>
+                          <span style={styles.icon}><Video size={24} /></span> Video
+                        </button>
+                        <button style={styles.pickerBtn} onClick={() => { setPostType("text"); setShowPicker(false); }}>
+                          <span style={styles.icon}><FileText size={24} /></span> Text
+                        </button>
+                      </div>
+
+                      <p style={styles.hint}>Your identity is hidden. Speak freely.</p>
+                    </div>
+                  </div>
+                )}
+
+
+                {/* SHOW POST FORM WHEN TYPE SELECTED */}
+                {postType && <CreatePostModal type={postType} onClose={() => setPostType(null)} onPostCreated={() => {
+                  setRefreshKey(k => k + 1);
+                  queryClient.invalidateQueries({ queryKey: ['posts'] }); // REFRESH CACHE
+                }} />}
+              </>
+            )}
+          </BrowserRouter>
+        </div>
       </QueryClientProvider>
     </HelmetProvider>
   )

@@ -1,44 +1,38 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 const API_BASE = import.meta.env.VITE_API_URL || "https://collegeass.onrender.com";
 import { useQuery } from '@tanstack/react-query';
+import SEO from "../components/SEO.jsx";
+import { MessageCircle, Heart, AlertTriangle, ChevronLeft, ArrowUp, ArrowDown } from 'lucide-react';
 
 export default function PostDetail() {
-    const { id, college } = useParams();
+    const { id } = useParams();
     const navigate = useNavigate();
-    // const [post, setPost] = useState(null); // Removed locally managed state
     const [interactions, setInteractions] = useState({});
     const [newComment, setNewComment] = useState("");
-    // const [loading, setLoading] = useState(true); // Handled by useQuery
     const [showReport, setShowReport] = useState(false);
     const [reportType, setReportType] = useState(null);
     const [reportText, setReportText] = useState("");
     const [reportFile, setReportFile] = useState(null);
 
     // --- 1. POST QUERY ---
-    const { data: post, isLoading: loading, error } = useQuery({
+    const { data: post, isLoading: loading } = useQuery({
         queryKey: ['post', id],
         queryFn: async () => {
-            console.log(`Fetching post ${id} via React Query...`);
             const res = await fetch(`${API_BASE}/api/posts/${id}`);
             if (!res.ok) throw new Error(`Post not found`);
             return res.json();
         },
-        enabled: !!id, // Only run if ID exists
-        staleTime: 1000 * 60 * 5, // 5 minutes fresh
+        enabled: !!id,
+        staleTime: 1000 * 60 * 5,
     });
 
     // --- 2. INTERACTIONS FETCH ---
-    // Fetch interactions when post loads. 
     useEffect(() => {
         if (id) {
             fetchInteractions();
         }
     }, [id]);
-
-    useEffect(() => {
-        console.log('PostDetail interactions updated:', interactions);
-    }, [interactions]);
 
     async function fetchInteractions() {
         try {
@@ -74,19 +68,15 @@ export default function PostDetail() {
             setReportText("");
             setReportType(null);
             setReportFile(null);
-            // fetchPostData(true); // No longer needed for main post
         } else {
             alert("Error submitting report");
         }
     }
 
-    // Kept interact logic below...
-
     /* --- BATCHING & OPTIMISTIC UI LOGIC --- */
-    const pendingInteractions = React.useRef([]);
-    const batchTimer = React.useRef(null);
+    const pendingInteractions = useRef([]);
+    const batchTimer = useRef(null);
 
-    // Flush interactions to backend every 3 seconds if there are any
     useEffect(() => {
         batchTimer.current = setInterval(flushInteractions, 3000);
         return () => clearInterval(batchTimer.current);
@@ -96,21 +86,14 @@ export default function PostDetail() {
         if (pendingInteractions.current.length === 0) return;
 
         const batch = [...pendingInteractions.current];
-        pendingInteractions.current = []; // Clear queue
+        pendingInteractions.current = [];
 
         try {
-            console.log("Flushing interactions:", batch);
-            const res = await fetch(`${API_BASE}/api/interact-batch`, {
+            await fetch(`${API_BASE}/api/interact-batch`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ interactions: batch }),
             });
-
-            if (!res.ok) {
-                console.error("Failed to flush interactions", await res.text());
-            } else {
-                console.log("Batch sync successful");
-            }
         } catch (err) {
             console.error("Batch flush error:", err);
         }
@@ -145,142 +128,173 @@ export default function PostDetail() {
         setNewComment("");
     }
 
-    if (loading) return <div style={styles.loading}>Loading post...</div>;
-    if (!post) return <div style={styles.loading}>Post not found</div>;
+    if (loading) return <div style={{ textAlign: "center", color: "#666", padding: "40px" }}>Loading post...</div>;
+    if (!post) return <div style={{ textAlign: "center", padding: "60px", color: "#666" }}>Post not found</div>;
+
+    const upvotes = interactions.upvotes || 0;
+    const downvotes = interactions.downvotes || 0;
 
     return (
-        <div className="container-narrow" style={{ paddingTop: '20px', paddingBottom: '40px' }}>
-            <button style={styles.backBtn} onClick={() => navigate(-1)}>← Back</button>
+        <div className="container" style={{ paddingTop: '20px', paddingBottom: '40px' }}>
+            <SEO title={`${post.college} - Post`} />
 
-            <article className="post-card" style={styles.postCard}>
+            <button
+                onClick={() => navigate(-1)}
+                style={{
+                    background: 'none', border: 'none', color: 'var(--text-secondary)',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    marginBottom: '20px', cursor: 'pointer', fontSize: '16px'
+                }}
+            >
+                <ChevronLeft size={20} /> Back
+            </button>
+
+            <article className="post-card">
                 {/* HEADER */}
-                <div style={styles.postHeader}>
-                    <div style={styles.userInfo}>
-                        <div style={styles.avatar}>{post.college ? post.college[0].toUpperCase() : "?"}</div>
+                <div className="post-header">
+                    <div className="user-info">
+                        <div className="avatar">
+                            {post.college ? post.college[0].toUpperCase() : "?"}
+                        </div>
                         <div>
-                            <h3 style={styles.alias}>{post.college || "Unknown College"}</h3>
-                            <p style={styles.college}>{post.alias || "Anonymous"}</p>
+                            <div className="alias">{post.college || "Unknown College"}</div>
+                            {post.college && <div className="college-name">{post.alias || "Anonymous Student"}</div>}
                         </div>
                     </div>
-                    <span style={styles.typeBadge}>{post.type?.toUpperCase() || "POST"}</span>
+                    <span className="tag" style={{ background: 'rgba(255,255,255,0.1)', color: '#999' }}>
+                        {post.type?.toUpperCase() || "POST"}
+                    </span>
                 </div>
 
                 {/* CONTENT */}
-                <div style={styles.content}>
-                    <h1 style={styles.title}>{post.caption}</h1>
+                <div className="post-content">
+                    {post.caption && <h1 className="post-title" style={{ fontSize: '24px', marginBottom: '16px' }}>{post.caption}</h1>}
 
                     {post.media_url && (
-                        <div style={styles.mediaContainer}>
-                            {post.type === "video" ? <video src={post.media_url} controls style={styles.media} /> : <img src={post.media_url} style={styles.media} />}
+                        <div className="media-container">
+                            {post.type === "video" ? (
+                                <video src={post.media_url} controls className="post-media" />
+                            ) : (
+                                <img src={post.media_url} className="post-media" />
+                            )}
                         </div>
                     )}
 
-                    {post.body && <p style={styles.body}>{post.body}</p>}
+                    {post.body && <p className="caption" style={{ whiteSpace: 'pre-wrap', WebkitLineClamp: 'unset', display: 'block' }}>{post.body}</p>}
 
-                    {post.tags && (
-                        <div style={styles.tags}>
-                            {post.tags.map((tag, i) => <span key={i} style={styles.tag}>#{tag}</span>)}
-                        </div>
-                    )}
+                    <div className="tags" style={{ marginTop: '20px' }}>
+                        {post.tags && post.tags.map((tag, i) => <span key={i} className="tag">#{tag}</span>)}
+                    </div>
                 </div>
 
                 {/* ACTIONS */}
-                <div style={styles.actionRow}>
-                    <div style={styles.votePill}>
+                <div className="action-row" style={{ marginTop: '20px', borderTop: '1px solid var(--border-light)', paddingTop: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '20px', padding: '4px 12px' }}>
                         <button
-                            style={styles.voteBtn}
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: upvotes > 0 ? 'var(--secondary)' : 'white', cursor: 'pointer' }}
                             onClick={() => interact('upvote')}
-                            onMouseEnter={(e) => e.target.style.color = '#00f2ea'}
-                            onMouseLeave={(e) => e.target.style.color = '#fff'}
-                            title={`Upvotes: ${typeof interactions.upvotes === 'number' ? interactions.upvotes : 0}`}
                         >
                             <UpIcon />
-                            <span style={styles.count}>{typeof interactions.upvotes === 'number' ? interactions.upvotes : 0}</span>
+                            <span style={{ fontWeight: 'bold' }}>{upvotes}</span>
                         </button>
-                        <div style={styles.divider}></div>
+                        <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.1)' }}></div>
                         <button
-                            style={styles.voteBtn}
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: downvotes > 0 ? 'var(--text-secondary)' : 'white', cursor: 'pointer' }}
                             onClick={() => interact('downvote')}
-                            onMouseEnter={(e) => e.target.style.color = '#ff0055'}
-                            onMouseLeave={(e) => e.target.style.color = '#fff'}
-                            title={`Downvotes: ${typeof interactions.downvotes === 'number' ? interactions.downvotes : 0}`}
                         >
                             <DownIcon />
-                            <span style={styles.count}>{typeof interactions.downvotes === 'number' ? interactions.downvotes : 0}</span>
+                            <span style={{ fontWeight: 'bold' }}>{downvotes}</span>
                         </button>
                     </div>
+
                     <button
-                        style={styles.reportBtn}
+                        className="action-btn"
                         onClick={() => setShowReport(true)}
+                        style={{ marginLeft: 'auto' }}
                     >
-                        Report
+                        <span style={{ marginRight: '8px', fontSize: '14px', fontWeight: '600' }}>Report</span>
+                        <AlertTriangle size={20} color="var(--error)" />
                     </button>
                 </div>
 
                 {/* COMMENTS SECTION */}
-                <div style={styles.commentsSection}>
-                    <h3 style={styles.commentHeader}>Comments ({Array.isArray(interactions.comments) ? interactions.comments.length : 0})</h3>
+                <div style={{ marginTop: "40px" }}>
+                    <h3 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "20px", color: "var(--text-main)" }}>
+                        Comments ({Array.isArray(interactions.comments) ? interactions.comments.length : 0})
+                    </h3>
 
-                    <div style={styles.commentInputBox}>
+                    <div style={{ display: "flex", gap: "12px", marginBottom: "30px" }}>
                         <input
                             value={newComment}
                             placeholder="Share your thoughts..."
                             onChange={e => setNewComment(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && postComment()}
-                            style={styles.input}
+                            style={{
+                                flex: 1,
+                                background: "rgba(255,255,255,0.05)",
+                                border: "1px solid var(--border-light)",
+                                padding: "12px 16px",
+                                borderRadius: "12px",
+                                color: "#fff",
+                                outline: "none",
+                                fontSize: "16px"
+                            }}
                         />
-                        <button onClick={postComment} style={styles.sendBtn}>Send</button>
+                        <button
+                            onClick={postComment}
+                            style={{
+                                background: "var(--primary)",
+                                color: "#000",
+                                padding: "0 24px",
+                                borderRadius: "12px",
+                                fontWeight: "700",
+                                fontSize: "16px",
+                                cursor: "pointer",
+                                border: 'none'
+                            }}
+                        >
+                            Send
+                        </button>
                     </div>
 
-                    <div style={styles.commentList}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                         {Array.isArray(interactions.comments) && interactions.comments.length > 0 ? (
                             interactions.comments.map(c => (
-                                <div key={c.id} style={styles.commentBubble}>
-                                    <p style={styles.commentText}>{c.comment_text}</p>
-                                    <span style={styles.timestamp}>{new Date(c.created_at).toLocaleDateString()}</span>
+                                <div key={c.id} style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "16px", border: "1px solid var(--border-light)" }}>
+                                    <p style={{ fontSize: "15px", color: "#eee", lineHeight: "1.5", marginBottom: "8px" }}>{c.comment_text}</p>
+                                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{new Date(c.created_at).toLocaleDateString()}</span>
                                 </div>
                             ))
                         ) : (
-                            <p style={{ color: '#888', padding: '10px' }}>No comments yet. Be the first!</p>
+                            <p style={{ color: 'var(--text-secondary)', padding: '10px' }}>No comments yet.</p>
                         )}
                     </div>
                 </div>
 
             </article>
-            {showReport && (
-                <div style={styles.modalOverlay} onClick={() => setShowReport(false)}>
-                    <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
 
+            {showReport && (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+                    background: "rgba(0,0,0,0.8)", zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center"
+                }} onClick={() => setShowReport(false)}>
+                    <div style={{ background: "#1a1a1a", padding: "20px", borderRadius: "16px", width: "90%", maxWidth: "400px", border: "1px solid var(--border-light)" }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                            <h2 style={{ color: "#fff", margin: 0 }}>
-                                Report Post
-                            </h2>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setShowReport(false); }}
-                                style={{ background: 'none', border: 'none', color: '#999', fontSize: '24px', cursor: 'pointer' }}
-                            >
-                                ×
-                            </button>
+                            <h3 style={{ marginBottom: "0", color: "white" }}>Report Post</h3>
+                            <button onClick={() => setShowReport(false)} style={{ background: 'none', border: 'none', color: '#999', fontSize: '24px', cursor: 'pointer' }}>×</button>
                         </div>
 
-                        <p style={{ color: "#aaa", marginBottom: "20px" }}>
-                            Is this post True or False? - {post.college}
-                        </p>
+                        <p style={{ color: "var(--text-secondary)", marginBottom: "20px" }}>Is this post True or False?</p>
 
-                        <p style={{ color: "#aaa", marginBottom: "20px" }}>
-                            Is this post True or False?
-                        </p>
-
-                        <div style={styles.reportButtons}>
+                        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
                             <button
-                                style={reportType === "true" ? styles.selectedBtn : styles.choiceBtn}
+                                style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', background: reportType === 'true' ? 'var(--primary)' : 'rgba(255,255,255,0.1)', color: reportType === 'true' ? '#000' : '#fff', cursor: 'pointer', fontWeight: 'bold' }}
                                 onClick={() => setReportType("true")}
                             >
                                 TRUE
                             </button>
-
                             <button
-                                style={reportType === "false" ? styles.selectedBtn : styles.choiceBtn}
+                                style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', background: reportType === 'false' ? 'var(--primary)' : 'rgba(255,255,255,0.1)', color: reportType === 'false' ? '#000' : '#fff', cursor: 'pointer', fontWeight: 'bold' }}
                                 onClick={() => setReportType("false")}
                             >
                                 FALSE
@@ -288,32 +302,22 @@ export default function PostDetail() {
                         </div>
 
                         <textarea
-                            placeholder="Explain why you think this is true/false..."
-                            style={styles.textArea}
+                            placeholder="Explain details..."
+                            style={{ width: '100%', height: '80px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '10px', color: 'white', marginBottom: '10px' }}
                             value={reportText}
                             onChange={(e) => setReportText(e.target.value)}
                         />
 
-                        <input
-                            type="file"
-                            accept="image/*,video/*"
-                            style={{ marginTop: "10px", color: "#fff" }}
-                            onChange={(e) => setReportFile(e.target.files[0])}
-                        />
-
-                        <button style={styles.submitBtn} onClick={submitReport}>
+                        <button onClick={submitReport} style={{ width: '100%', background: "var(--primary)", color: "#000", padding: "12px", borderRadius: "8px", cursor: "pointer", fontWeight: 'bold', border: 'none' }}>
                             Submit Report
                         </button>
-
                     </div>
                 </div>
             )}
-
         </div>
     );
 }
 
-// ICONS (Same as Post.jsx)
 const UpIcon = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="18 15 12 9 6 15"></polyline>
@@ -325,122 +329,3 @@ const DownIcon = () => (
         <polyline points="6 9 12 15 18 9"></polyline>
     </svg>
 );
-
-const styles = {
-    loading: { textAlign: "center", color: "#999", padding: "40px", fontSize: "18px" },
-    backBtn: { background: "none", border: "none", color: "var(--text-muted)", fontSize: "16px", cursor: "pointer", marginBottom: "20px", display: "flex", alignItems: "center", gap: "5px" },
-
-    postCard: { background: "#1a1a1a", borderRadius: "32px", padding: "40px", boxShadow: "0 20px 60px rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.05)" },
-
-    postHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" },
-    userInfo: { display: "flex", alignItems: "center", gap: "16px" },
-    avatar: { width: "56px", height: "56px", borderRadius: "50%", background: "#628141", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "24px", color: "#fff" },
-    alias: { fontSize: "clamp(1rem, 4vw, 1.25rem)", fontWeight: "700", color: "#fff", textTransform: "uppercase" },
-    college: { fontSize: "14px", color: "#8BAE66", letterSpacing: "0.5px", fontWeight: "600" },
-    typeBadge: { fontSize: "12px", background: "rgba(255,255,255,0.1)", padding: "6px 12px", borderRadius: "8px", color: "#999", fontWeight: "600" },
-
-    content: { marginBottom: "40px" },
-    title: { fontSize: "clamp(1.5rem, 5vw, 2rem)", fontWeight: "800", marginBottom: "20px", lineHeight: "1.2", color: "#fff" },
-    body: { fontSize: "18px", lineHeight: "1.6", color: "#e0e0e0", marginBottom: "20px", whiteSpace: "pre-wrap" },
-    mediaContainer: { borderRadius: "24px", overflow: "hidden", marginBottom: "30px", border: "1px solid rgba(255,255,255,0.1)", background: "#000" },
-    media: { width: "100%", maxHeight: "700px", objectFit: "contain", display: "block" },
-    tags: { display: "flex", gap: "10px", flexWrap: "wrap" },
-    tag: { fontSize: "14px", color: "#8BAE66", background: "rgba(0,242,234,0.05)", padding: "6px 12px", borderRadius: "8px" },
-    reportBtn: {
-        marginLeft: "auto",
-        background: "rgba(255,0,0,0.1)",
-        border: "1px solid rgba(255,0,0,0.3)",
-        color: "#ff4d4d",
-        padding: "10px 18px",
-        borderRadius: "10px",
-        cursor: "pointer",
-        fontWeight: 600,
-    },
-
-    actionRow: { display: "flex", gap: "12px", alignItems: "center", paddingBottom: "30px", borderBottom: "1px solid rgba(255,255,255,0.1)" },
-    votePill: {
-        display: "flex", alignItems: "center", background: "rgba(255,255,255,0.05)",
-        borderRadius: "100px", border: "1px solid rgba(255,255,255,0.08)", padding: "4px"
-    },
-    voteBtn: {
-        display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px",
-        background: "none", border: "none", color: "#fff", cursor: "pointer", transition: "color 0.2s"
-    },
-    divider: { width: "1px", height: "20px", background: "rgba(255,255,255,0.1)" },
-    count: { fontSize: "16px", fontWeight: 700 },
-    modalOverlay: {
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        background: "rgba(0,0,0,0.6)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 9999
-    },
-    modal: {
-        background: "#1a1a1a",
-        padding: "30px",
-        borderRadius: "20px",
-        width: "90%",
-        maxWidth: "500px",
-        border: "1px solid rgba(255,255,255,0.1)"
-    },
-    reportButtons: {
-        display: "flex",
-        gap: "10px",
-        marginBottom: "20px"
-    },
-    choiceBtn: {
-        flex: 1,
-        padding: "12px",
-        background: "rgba(255,255,255,0.1)",
-        border: "none",
-        borderRadius: "10px",
-        color: "#fff",
-        cursor: "pointer"
-    },
-    selectedBtn: {
-        flex: 1,
-        padding: "12px",
-        background: "#628141",
-        border: "none",
-        borderRadius: "10px",
-        color: "#000",
-        cursor: "pointer",
-        fontWeight: "700"
-    },
-    textArea: {
-        width: "100%",
-        height: "100px",
-        background: "rgba(255,255,255,0.05)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: "10px",
-        padding: "10px",
-        color: "#fff",
-        marginBottom: "10px"
-    },
-    submitBtn: {
-        width: "100%",
-        background: "#628141",
-        padding: "14px 0",
-        color: "#000",
-        borderRadius: "10px",
-        cursor: "pointer",
-        fontWeight: 700,
-        marginTop: "10px"
-    },
-
-    commentsSection: { marginTop: "40px" },
-    commentHeader: { fontSize: "24px", fontWeight: "700", marginBottom: "20px", color: "var(--text-main)" },
-    commentInputBox: { display: "flex", gap: "12px", marginBottom: "40px" },
-    input: { flex: 1, background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)", padding: "16px 20px", borderRadius: "16px", color: "#fff", outline: "none", fontSize: "16px" },
-    sendBtn: { background: "#628141", color: "#000", padding: "0 30px", borderRadius: "16px", fontWeight: "700", fontSize: "16px", cursor: "pointer" },
-
-    commentList: { display: "flex", flexDirection: "column", gap: "16px" },
-    commentBubble: { background: "rgba(255,255,255,0.03)", padding: "20px", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.05)" },
-    commentText: { fontSize: "16px", color: "#eee", lineHeight: "1.5", marginBottom: "8px" },
-    timestamp: { fontSize: "12px", color: "var(--text-muted)" }
-};
